@@ -22,14 +22,16 @@ pub enum Feedback {
     Working { elapsed: u64, animate: bool },
     Success { elapsed: u64 },
 }
-pub struct Visual {
+pub struct Visual<'a> {
     pub accent: u32,
     pub hover: [f32; 7],
     pub motion: bool,
     pub formats: [usize; 6],
     pub feedback: Feedback,
+    /// Device-pixel liquid glass from `glass_from`; `None` draws the classic opaque theme.
+    pub glass: Option<&'a [u32]>,
 }
-impl Visual {
+impl Visual<'static> {
     #[cfg(test)]
     pub fn menu(index: i32, accent: u32) -> Self {
         Self {
@@ -38,6 +40,116 @@ impl Visual {
             formats: [0, 1, 2, 3, 4, 5],
             hover: std::array::from_fn(|i| if i as i32 == index { 1.0 } else { 0.0 }),
             feedback: Feedback::Menu,
+            glass: None,
+        }
+    }
+}
+/// Maps a logical pixel of a glass shape to the backdrop point seen through it.
+pub type Bend = fn(f32, f32) -> (f32, f32);
+/// Copies the screen behind a (still hidden) window and bakes it into liquid glass.
+pub unsafe fn capture_glass(x: i32, y: i32, w: i32, h: i32, scale: f64, dark: bool, bend: Bend) -> Option<Vec<u32>> {
+    let screen = GetDC(null_mut());
+    let dc = CreateCompatibleDC(screen);
+    let mut info: BITMAPINFO = zeroed();
+    info.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
+    info.bmiHeader.biWidth = w;
+    info.bmiHeader.biHeight = -h;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    let mut bits = null_mut();
+    let bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &mut bits, null_mut(), 0);
+    let mut raw = None;
+    if !dc.is_null() && !bitmap.is_null() && !bits.is_null() {
+        let previous = SelectObject(dc, bitmap);
+        if BitBlt(dc, 0, 0, w, h, screen, x, y, SRCCOPY | CAPTUREBLT) != 0 {
+            raw = Some(std::slice::from_raw_parts(bits as *const u32, (w * h) as usize).to_vec());
+        }
+        SelectObject(dc, previous);
+    }
+    if !bitmap.is_null() {
+        DeleteObject(bitmap);
+    }
+    DeleteDC(dc);
+    ReleaseDC(null_mut(), screen);
+    raw.map(|raw| glass_from(&raw, w as usize, h as usize, scale, dark, bend))
+}
+/// The radial menu's lens: content bends near every petal edge and the center rim.
+pub fn menu_bend(x: f32, y: f32) -> (f32, f32) {
+    let (dx, dy) = (x - 200.0, y - 200.0);
+    let r = dx.hypot(dy);
+    let mut a = dy.atan2(dx);
+    let bent = if r <= 88.0 {
+        r - 88.0 * 0.14 * (r / 88.0).powi(4)
+    } else if r <= 180.0 {
+        let u = ((r - 133.5) / 43.5).clamp(-1.0, 1.0);
+        // Petal sides: bend along the angle as well, towards the petal's middle.
+        let rel = (a.to_degrees() + 120.0).rem_euclid(60.0) - 30.0;
+        a -= (30.0 * 0.15 * (rel / 30.0).powi(3)).to_radians();
+        r - 43.5 * 0.25 * u.powi(3)
+    } else {
+        r
+    };
+    (200.0 + bent * a.cos(), 200.0 + bent * a.sin())
+}
+/// The settings panel's lens: a slab whose last 18px curve the backdrop inward.
+pub fn panel_bend(x: f32, y: f32) -> (f32, f32) {
+    let edge = |v: f32, size: f32| {
+        let rim = 18.0;
+        let near = (rim - v).max(0.0) - (rim - (size - v)).max(0.0);
+        v + near * near.abs() / rim * 0.6
+    };
+    (edge(x, PANEL_W as f32), edge(y, PANEL_H as f32))
+}
+/// Frosts (blur + saturation + theme wash) and refracts a backdrop through a shape.
+pub fn glass_from(raw: &[u32], w: usize, h: usize, scale: f64, dark: bool, bend: Bend) -> Vec<u32> {
+    let mut blurred = raw.to_vec();
+    let mut buffer = vec![0u32; raw.len()];
+    let radius = (6.0 * scale).round().max(1.0) as usize;
+    for _ in 0..3 {
+        box_blur(&blurred, &mut buffer, w, h, radius, true);
+        box_blur(&buffer, &mut blurred, w, h, radius, false);
+    }
+    let (wash, toward) = if dark { (0.58, 28.0) } else { (0.55, 248.0) };
+    let scale = scale as f32;
+    let mut out = vec![0u32; raw.len()];
+    for py in 0..h {
+        for px in 0..w {
+            let (bx, by) = bend(px as f32 / scale, py as f32 / scale);
+            let sx = (bx * scale).round().clamp(0.0, w as f32 - 1.0) as usize;
+            let sy = (by * scale).round().clamp(0.0, h as f32 - 1.0) as usize;
+            let c = blurred[sy * w + sx];
+            let channel = |shift: u32| ((c >> shift) & 255) as f32;
+            let (r8, g8, b8) = (channel(16), channel(8), channel(0));
+            let l = 0.3 * r8 + 0.59 * g8 + 0.11 * b8;
+            let finish = |v: f32| {
+                let saturated = (l + (v - l) * 1.3).clamp(0.0, 255.0);
+                (saturated * (1.0 - wash) + toward * wash).round() as u32
+            };
+            out[py * w + px] = 0xff000000 | finish(r8) << 16 | finish(g8) << 8 | finish(b8);
+        }
+    }
+    out
+}
+fn box_blur(src: &[u32], dst: &mut [u32], w: usize, h: usize, radius: usize, horizontal: bool) {
+    let (lines, length) = if horizontal { (h, w) } else { (w, h) };
+    let at = |line: usize, i: usize| if horizontal { line * w + i } else { i * w + line };
+    let window = (2 * radius + 1) as u32;
+    for line in 0..lines {
+        let mut sum = [0u32; 3];
+        let sample = |i: isize| src[at(line, i.clamp(0, length as isize - 1) as usize)];
+        for i in -(radius as isize)..=radius as isize {
+            let c = sample(i);
+            for (k, shift) in [16, 8, 0].into_iter().enumerate() {
+                sum[k] += (c >> shift) & 255;
+            }
+        }
+        for i in 0..length {
+            dst[at(line, i)] = 0xff000000 | (sum[0] / window) << 16 | (sum[1] / window) << 8 | sum[2] / window;
+            let (out, inn) = (sample(i as isize - radius as isize), sample(i as isize + radius as isize + 1));
+            for (k, shift) in [16, 8, 0].into_iter().enumerate() {
+                sum[k] = sum[k] + ((inn >> shift) & 255) - ((out >> shift) & 255);
+            }
         }
     }
 }
@@ -100,16 +212,29 @@ fn readable_accent(raw: u32, dark: bool, surface: u32, hover: u32) -> u32 {
     }
     towards
 }
-pub const ANIMATION_MS: u64 = 600;
+pub const ANIMATION_MS: u64 = 460;
 pub const PETAL_GAP: f64 = 8.0;
+const STAGGER_MS: u64 = 28;
+const BUBBLE_MS: f32 = 300.0;
 
+/// Linear 0..1 reveal of one petal; `bubble` shapes it.
 pub fn petal_progress(elapsed: Option<u64>, index: usize) -> f32 {
     let Some(elapsed) = elapsed else {
         return 1.0;
     };
-    let delay = index as u64 * 60;
-    let t = (elapsed.saturating_sub(delay) as f32 / 300.0).clamp(0.0, 1.0);
-    1.0 - (1.0 - t).powi(3)
+    let delay = index as u64 * STAGGER_MS;
+    (elapsed.saturating_sub(delay) as f32 / BUBBLE_MS).clamp(0.0, 1.0)
+}
+/// Ease-out with a ~6% overshoot: the soft pop of a bubble settling.
+fn bubble(t: f32) -> f32 {
+    let (c1, c3) = (1.3, 2.3);
+    1.0 + c3 * (t - 1.0).powi(3) + c1 * (t - 1.0).powi(2)
+}
+/// Scales whatever is drawn next around the menu's center.
+unsafe fn grow_from_center(g: *mut GpGraphics, s: f32) {
+    GdipTranslateWorldTransform(g, 200.0, 200.0, MatrixOrderPrepend);
+    GdipScaleWorldTransform(g, s, s, MatrixOrderPrepend);
+    GdipTranslateWorldTransform(g, -200.0, -200.0, MatrixOrderPrepend);
 }
 fn faded(color: u32, progress: f32) -> u32 {
     let alpha = ((color >> 24) as f32 * progress).round() as u32;
@@ -183,7 +308,6 @@ struct Palette {
     hover: u32,
     border: u32,
     text: u32,
-    secondary: u32,
     accent: u32,
 }
 impl Palette {
@@ -195,7 +319,6 @@ impl Palette {
                 hover: 0,
                 border: 0xff414141,
                 text: 0xfff6f6f6,
-                secondary: 0xffbcbcbc,
                 accent: raw,
             }
         } else {
@@ -205,7 +328,6 @@ impl Palette {
                 hover: 0,
                 border: 0xffdcdcdc,
                 text: 0xff202020,
-                secondary: 0xff626262,
                 accent: raw,
             }
         };
@@ -321,10 +443,10 @@ fn pixel_text_layout(points: [PointF; 2], width: f32, size: f32) -> (RectF, f32)
         (size * scale).round().max(10.0),
     )
 }
-unsafe fn native_font(size: f32) -> HFONT {
+unsafe fn native_font(size: f32, bold: bool) -> HFONT {
     let mut font: LOGFONTW = zeroed();
     font.lfHeight = -(size as i32);
-    font.lfWeight = FW_BOLD as i32;
+    font.lfWeight = if bold { FW_BOLD } else { FW_NORMAL } as i32;
     font.lfQuality = CLEARTYPE_QUALITY;
     for (to, from) in font.lfFaceName.iter_mut().zip(wide(TEXT_FACE)) {
         *to = from;
@@ -337,8 +459,9 @@ unsafe fn native_text(
     layout: RectF,
     size: f32,
     color: u32,
+    style: Style,
 ) -> bool {
-    let font = native_font(size);
+    let font = native_font(size, style.bold);
     if font.is_null() {
         return false;
     }
@@ -372,7 +495,7 @@ unsafe fn native_text(
         value.as_ptr(),
         (value.len() - 1) as i32,
         &mut bounds,
-        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX,
+        if style.left { DT_LEFT } else { DT_CENTER } | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX,
     );
     GdiFlush();
     SelectObject(surface.dc, previous);
@@ -397,6 +520,14 @@ unsafe fn native_text(
     drawn != 0
 }
 unsafe fn text(surface: &Surface, value: &str, layout: RectF, size: f32, color: u32) {
+    styled(surface, value, layout, size, color, Style { left: false, bold: true });
+}
+#[derive(Clone, Copy)]
+struct Style {
+    left: bool,
+    bold: bool,
+}
+unsafe fn styled(surface: &Surface, value: &str, layout: RectF, size: f32, color: u32, style: Style) {
     let g = surface.graphics;
     let mut points = [
         PointF {
@@ -416,7 +547,7 @@ unsafe fn text(surface: &Surface, value: &str, layout: RectF, size: f32, color: 
         2,
     );
     let (layout, size) = pixel_text_layout(points, layout.Width, size);
-    if color >> 24 == 255 && native_text(surface, value, layout, size, color) {
+    if color >> 24 == 255 && native_text(surface, value, layout, size, color, style) {
         return;
     }
     let mut saved = 0;
@@ -428,9 +559,9 @@ unsafe fn text(surface: &Surface, value: &str, layout: RectF, size: f32, color: 
     GdipCreateFontFamilyFromName(wide(TEXT_FACE).as_ptr(), null_mut(), &mut family);
     let mut font = null_mut();
     let mut format = null_mut();
-    GdipCreateFont(family, size, FontStyleBold, UnitPixel, &mut font);
+    GdipCreateFont(family, size, if style.bold { FontStyleBold } else { FontStyleRegular }, UnitPixel, &mut font);
     GdipCreateStringFormat(StringFormatFlagsNoWrap, 0, &mut format);
-    GdipSetStringFormatAlign(format, StringAlignmentCenter);
+    GdipSetStringFormatAlign(format, if style.left { StringAlignmentNear } else { StringAlignmentCenter });
     GdipSetStringFormatLineAlign(format, StringAlignmentCenter);
     GdipSetStringFormatTrimming(format, StringTrimmingEllipsisCharacter);
     let b = brush(color);
@@ -458,28 +589,100 @@ fn rect(x: f32, y: f32, w: f32, h: f32) -> RectF {
         Height: h,
     }
 }
-unsafe fn draw(
-    surface: &Surface,
-    filename: &str,
+/// The liquid glass as a GDI+ texture brush in menu (world) coordinates.
+struct Glass {
+    image: *mut GpBitmap,
+    brush: *mut GpTexture,
     dark: bool,
-    elapsed: Option<u64>,
-    visual: &Visual,
-) {
+}
+impl Glass {
+    unsafe fn new(pixels: &[u32], surface: &Surface, scale: f32, dark: bool) -> Option<Self> {
+        if pixels.len() != (surface.width * surface.height) as usize {
+            return None;
+        }
+        let mut glass = Self {
+            image: null_mut(),
+            brush: null_mut(),
+            dark,
+        };
+        // PixelFormat32bppARGB; the glass is fully opaque, so straight == premultiplied.
+        let format = 10 | (32 << 8) | PixelFormatAlpha as i32 | PixelFormatGDI as i32 | PixelFormatCanonical as i32;
+        GdipCreateBitmapFromScan0(
+            surface.width,
+            surface.height,
+            surface.width * 4,
+            format,
+            pixels.as_ptr() as *mut u8,
+            &mut glass.image,
+        );
+        if glass.image.is_null() || GdipCreateTexture(glass.image as _, WrapModeClamp, &mut glass.brush) != 0 {
+            return None;
+        }
+        GdipScaleTextureTransform(glass.brush, 1.0 / scale, 1.0 / scale, MatrixOrderPrepend);
+        Some(glass)
+    }
+    /// Glass body, a white sheen that lights it up on hover (`glow` 0..1), then the polished rim.
+    /// The glass stays colourless: hover brightens it instead of painting a hue over the backdrop.
+    unsafe fn pane(&self, g: *mut GpGraphics, path: *mut GpPath, glow: f32) {
+        GdipFillPath(g, self.brush as _, path);
+        let mut bounds = rect(0.0, 0.0, 0.0, 0.0);
+        GdipGetPathWorldBounds(path, &mut bounds, null(), null());
+        let (top, bottom) = (
+            PointF { X: 0.0, Y: bounds.Y },
+            PointF { X: 0.0, Y: bounds.Y + bounds.Height },
+        );
+        let line = |from: u32, to: u32| {
+            let mut brush = null_mut();
+            GdipCreateLineBrush(&top, &bottom, from, to, WrapModeTileFlipXY, &mut brush);
+            brush
+        };
+        if glow > 0.0 {
+            let (high, low) = if self.dark { (0.24, 0.08) } else { (0.62, 0.30) };
+            let sheen = line(with_alpha(0xffffffff, high * glow), with_alpha(0xffffffff, low * glow));
+            GdipFillPath(g, sheen as _, path);
+            GdipDeleteBrush(sheen as _);
+        }
+        let light = line(with_alpha(0xffffffff, 0.65 + 0.35 * glow), with_alpha(0xffffffff, 0.12 + 0.3 * glow));
+        let mut pen = null_mut();
+        GdipCreatePen2(light as _, 1.2 + 0.6 * glow, UnitPixel, &mut pen);
+        GdipDrawPath(g, pen, path);
+        GdipDeletePen(pen);
+        GdipDeleteBrush(light as _);
+    }
+}
+impl Drop for Glass {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.brush.is_null() {
+                GdipDeleteBrush(self.brush as _);
+            }
+            if !self.image.is_null() {
+                GdipDisposeImage(self.image as _);
+            }
+        }
+    }
+}
+fn with_alpha(color: u32, alpha: f32) -> u32 {
+    (color & 0x00ffffff) | (((alpha.clamp(0.0, 1.0) * 255.0).round() as u32) << 24)
+}
+unsafe fn circle_path(radius: f32) -> *mut GpPath {
+    let mut path = null_mut();
+    GdipCreatePath(FillModeWinding, &mut path);
+    GdipAddPathEllipse(path, 200.0 - radius, 200.0 - radius, radius * 2.0, radius * 2.0);
+    path
+}
+unsafe fn draw(surface: &Surface, scale: f32, dark: bool, elapsed: Option<u64>, visual: &Visual) {
     let g = surface.graphics;
     let p = Palette::new(dark, visual.accent);
+    let glass = visual.glass.and_then(|pixels| Glass::new(pixels, surface, scale, dark));
     if !matches!(visual.feedback, Feedback::Menu) {
-        let radius = FEEDBACK_RADIUS as f32;
-        let mut path = null_mut();
-        GdipCreatePath(FillModeWinding, &mut path);
-        GdipAddPathEllipse(
-            path,
-            200.0 - radius,
-            200.0 - radius,
-            radius * 2.0,
-            radius * 2.0,
-        );
-        fill(g, path, p.center);
-        outline(g, path, p.border);
+        let path = circle_path(FEEDBACK_RADIUS as f32);
+        if let Some(glass) = &glass {
+            glass.pane(g, path, 0.0);
+        } else {
+            fill(g, path, p.center);
+            outline(g, path, p.border);
+        }
         GdipDeletePath(path);
     }
     match visual.feedback {
@@ -493,7 +696,10 @@ unsafe fn draw(
         }
         Feedback::Menu => {}
     }
-    // A translated, graduated shadow; surfaces stay opaque and text remains legible.
+    // A translated, graduated shadow that grows with the bubble burst.
+    let mut saved = 0;
+    GdipSaveGraphics(g, &mut saved);
+    grow_from_center(g, 0.4 + 0.6 * bubble(petal_progress(elapsed, 3)));
     for spread in (1..=18).rev() {
         let r = 176.0 + spread as f32;
         ellipse(
@@ -508,35 +714,29 @@ unsafe fn draw(
             ),
         );
     }
+    GdipRestoreGraphics(g, saved);
     let labels = visual.formats.map(|index| crate::convert::FORMATS[index].0);
     for (i, label) in labels.iter().enumerate() {
         let progress = petal_progress(elapsed, i);
         if progress == 0.0 {
             continue;
         }
-        let angle = (-90.0 + i as f32 * 60.0) * PI / 180.0;
-        let offset = -10.0 * (1.0 - progress);
+        // Petals bubble out from under the center disc, overshoot slightly and settle.
+        let size = 0.4 + 0.6 * bubble(progress);
+        let fade = (progress * 2.5).min(1.0);
         let strength = visual.hover[i];
         let (hover_x, hover_y) = hover_offset(i, strength, visual.motion);
         let mut saved = 0;
         GdipSaveGraphics(g, &mut saved);
-        GdipTranslateWorldTransform(
-            g,
-            offset * angle.cos() + hover_x,
-            offset * angle.sin() + hover_y,
-            MatrixOrderPrepend,
-        );
+        GdipTranslateWorldTransform(g, hover_x, hover_y, MatrixOrderPrepend);
+        grow_from_center(g, size);
         let path = sector_path(i);
-        fill(
-            g,
-            path,
-            faded(mix(p.surface, visual.accent, strength), progress),
-        );
-        outline(
-            g,
-            path,
-            faded(mix(p.border, visual.accent, strength), progress),
-        );
+        if let Some(glass) = &glass {
+            glass.pane(g, path, strength);
+        } else {
+            fill(g, path, faded(mix(p.surface, visual.accent, strength), fade));
+            outline(g, path, faded(mix(p.border, visual.accent, strength), fade));
+        }
         GdipDeletePath(path);
         let (x, y) = polar(134.0, -90.0 + i as f32 * 60.0);
         text(
@@ -544,7 +744,11 @@ unsafe fn draw(
             label,
             rect(x - 42.0, y - 16.0, 84.0, 32.0),
             21.0,
-            faded(mix(p.text, 0xff000000, strength), progress),
+            if glass.is_some() {
+                p.text
+            } else {
+                faded(mix(p.text, 0xff000000, strength), fade)
+            },
         );
         GdipRestoreGraphics(g, saved);
     }
@@ -552,47 +756,27 @@ unsafe fn draw(
         let r = 86.0 + spread as f32;
         ellipse(g, 200.0 - r, 203.0 - r, r * 2.0, r * 2.0, 0x04000000);
     }
-    ellipse(
-        g,
-        114.0,
-        114.0,
-        172.0,
-        172.0,
-        mix(p.center, visual.accent, visual.hover[6]),
-    );
-    let mut pen = null_mut();
-    GdipCreatePen1(
-        mix(p.border, visual.accent, visual.hover[6]),
-        0.8,
-        UnitPixel,
-        &mut pen,
-    );
-    GdipDrawEllipse(g, pen, 114.0, 114.0, 172.0, 172.0);
-    GdipDeletePen(pen);
-    let b = brush(mix(p.accent, 0xff000000, visual.hover[6]));
-    for (x, y) in [
-        (189.0, 148.0),
-        (201.0, 148.0),
-        (189.0, 160.0),
-        (201.0, 160.0),
-    ] {
-        GdipFillRectangle(g, b as _, x, y, 10.0, 10.0);
+    // The center pops first and leads the bubble burst.
+    let pop = elapsed.map_or(1.0, |t| bubble((t as f32 / 220.0).min(1.0)));
+    let mut saved = 0;
+    GdipSaveGraphics(g, &mut saved);
+    grow_from_center(g, 0.85 + 0.15 * pop);
+    let path = circle_path(86.0);
+    if let Some(glass) = &glass {
+        glass.pane(g, path, visual.hover[6]);
+    } else {
+        fill(g, path, mix(p.center, visual.accent, visual.hover[6]));
+        outline(g, path, mix(p.border, visual.accent, visual.hover[6]));
+    }
+    GdipDeletePath(path);
+    // Only the Windows logo: the center opens the original context menu.
+    let logo = if glass.is_some() { p.text } else { p.accent };
+    let b = brush(if glass.is_some() { logo } else { mix(logo, 0xff000000, visual.hover[6]) });
+    for (x, y) in [(183.0, 183.0), (201.0, 183.0), (183.0, 201.0), (201.0, 201.0)] {
+        GdipFillRectangle(g, b as _, x, y, 16.0, 16.0);
     }
     GdipDeleteBrush(b as _);
-    text(
-        surface,
-        "Windows menu",
-        rect(125.0, 182.0, 150.0, 25.0),
-        17.5,
-        mix(p.text, 0xff000000, visual.hover[6]),
-    );
-    text(
-        surface,
-        filename,
-        rect(128.0, 212.0, 144.0, 20.0),
-        12.0,
-        mix(p.secondary, 0xff000000, visual.hover[6]),
-    );
+    GdipRestoreGraphics(g, saved);
 }
 unsafe fn draw_check(g: *mut GpGraphics, elapsed: u64, motion: bool, color: u32) {
     let t = if motion {
@@ -665,20 +849,26 @@ unsafe fn surface(
 ) -> Result<Surface, String> {
     let mut visual = Visual::menu(hover, 0xff0078d4);
     visual.formats = crate::convert::menu_formats(std::path::Path::new(name));
-    surface_visual(scale, name, dark, elapsed, &visual)
+    surface_visual(scale, dark, elapsed, &visual)
 }
 unsafe fn surface_visual(
     scale: f64,
-    name: &str,
     dark: bool,
     elapsed: Option<u64>,
     visual: &Visual,
 ) -> Result<Surface, String> {
+    let s = new_surface(WIDTH, HEIGHT, scale)?;
+    draw(&s, scale as f32, dark, elapsed, visual);
+    GdipFlush(s.graphics, FlushIntentionSync);
+    Result::Ok(s)
+}
+/// A cleared premultiplied ARGB surface of `width`×`height` logical pixels at `scale`.
+unsafe fn new_surface(width: i32, height: i32, scale: f64) -> Result<Surface, String> {
     if !initialize() {
         return Err("Could not initialize GDI+".into());
     }
-    let width = (WIDTH as f64 * scale).round() as i32;
-    let height = (HEIGHT as f64 * scale).round() as i32;
+    let width = (width as f64 * scale).round() as i32;
+    let height = (height as f64 * scale).round() as i32;
     let mut s = Surface {
         dc: CreateCompatibleDC(null_mut()),
         bitmap: null_mut(),
@@ -717,43 +907,158 @@ unsafe fn surface_visual(
     GdipSetPixelOffsetMode(s.graphics, PixelOffsetModeHalf);
     GdipSetTextRenderingHint(s.graphics, TextRenderingHintAntiAliasGridFit);
     GdipScaleWorldTransform(s.graphics, scale as f32, scale as f32, MatrixOrderPrepend);
-    draw(&s, name, dark, elapsed, visual);
-    GdipFlush(s.graphics, FlushIntentionSync);
     Result::Ok(s)
+}
+/// Shows a finished surface on a layered window, faded by `alpha` (0..=255).
+unsafe fn present(hwnd: HWND, s: &Surface, alpha: u8) {
+    let source = POINT { x: 0, y: 0 };
+    let size = SIZE {
+        cx: s.width,
+        cy: s.height,
+    };
+    let blend = BLENDFUNCTION {
+        BlendOp: AC_SRC_OVER as u8,
+        BlendFlags: 0,
+        SourceConstantAlpha: alpha,
+        AlphaFormat: AC_SRC_ALPHA as u8,
+    };
+    UpdateLayeredWindow(hwnd, null_mut(), null(), &size, s.dc, &source, 0, &blend, ULW_ALPHA);
+}
+pub const PANEL_W: i32 = 340;
+pub const PANEL_H: i32 = 300;
+pub const PANEL_ROWS: [(&str, &str); 3] = [
+    ("Liquid glass", "Frosted, refracting menu"),
+    ("Animations", "Bubble opening and hover motion"),
+    ("Sound", "A chime when a conversion finishes"),
+];
+const ROW_TOP: f32 = 76.0;
+const ROW_STEP: f32 = 64.0;
+/// What the settings panel shows this frame.
+pub struct Panel<'a> {
+    pub accent: u32,
+    pub glass: Option<&'a [u32]>,
+    /// Knob position of each switch, 0 = off .. 1 = on (animated by the caller).
+    pub switches: [f32; 3],
+    /// Hovered or keyboard-focused target: 0..=2 rows, 3 = close, -1 none.
+    pub hover: i32,
+    /// Open animation 0..1 (eased here) and fade-out alpha.
+    pub open: f32,
+    pub alpha: u8,
+}
+/// Settings panel target under a logical point: 0..=2 rows, 3 = close, -1 none.
+pub fn panel_hit(x: f32, y: f32) -> i32 {
+    if (x - (PANEL_W as f32 - 34.0)).hypot(y - 30.0) <= 15.0 {
+        return 3;
+    }
+    if !(16.0..=PANEL_W as f32 - 16.0).contains(&x) {
+        return -1;
+    }
+    (0..3)
+        .find(|&i| (0.0..56.0).contains(&(y - ROW_TOP - i as f32 * ROW_STEP)))
+        .map_or(-1, |i| i as i32)
+}
+unsafe fn rounded(x: f32, y: f32, w: f32, h: f32, r: f32) -> *mut GpPath {
+    let mut path = null_mut();
+    GdipCreatePath(FillModeWinding, &mut path);
+    let d = r * 2.0;
+    GdipAddPathArc(path, x, y, d, d, 180.0, 90.0);
+    GdipAddPathArc(path, x + w - d, y, d, d, 270.0, 90.0);
+    GdipAddPathArc(path, x + w - d, y + h - d, d, d, 0.0, 90.0);
+    GdipAddPathArc(path, x, y + h - d, d, d, 90.0, 90.0);
+    GdipClosePathFigure(path);
+    path
+}
+pub unsafe fn paint_panel(hwnd: HWND, scale: f64, dark: bool, panel: &Panel) {
+    let mut ps = zeroed();
+    BeginPaint(hwnd, &mut ps);
+    if let Result::Ok(s) = new_surface(PANEL_W, PANEL_H, scale) {
+        draw_panel(&s, scale as f32, dark, panel);
+        GdipFlush(s.graphics, FlushIntentionSync);
+        present(hwnd, &s, panel.alpha);
+    }
+    EndPaint(hwnd, &ps);
+}
+unsafe fn draw_panel(s: &Surface, scale: f32, dark: bool, panel: &Panel) {
+    let g = s.graphics;
+    let p = Palette::new(dark, panel.accent);
+    let (w, h) = (PANEL_W as f32, PANEL_H as f32);
+    let glass = panel.glass.and_then(|pixels| Glass::new(pixels, s, scale, dark));
+    // The panel pops like the menu's bubble: a short overshoot around its center.
+    let size = 0.92 + 0.08 * bubble(panel.open);
+    GdipTranslateWorldTransform(g, w / 2.0, h / 2.0, MatrixOrderPrepend);
+    GdipScaleWorldTransform(g, size, size, MatrixOrderPrepend);
+    GdipTranslateWorldTransform(g, -w / 2.0, -h / 2.0, MatrixOrderPrepend);
+    let body = rounded(1.0, 1.0, w - 2.0, h - 2.0, 20.0);
+    match &glass {
+        Some(glass) => glass.pane(g, body, 0.0),
+        None => {
+            fill(g, body, p.surface);
+            outline(g, body, p.border);
+        }
+    }
+    GdipDeletePath(body);
+    let left = Style { left: true, bold: true };
+    let quiet = Style { left: true, bold: false };
+    let secondary = mix(p.text, if dark { 0xff000000 } else { 0xffffffff }, 0.35);
+    // Glass is colourless (the hue comes from behind it): controls use monochrome ink, classic keeps the accent.
+    let (ink, knob_on) = match (glass.is_some(), dark) {
+        (false, _) => (p.accent, 0xffffffff),
+        (true, true) => (0xebffffff, 0xff1c1c1c),
+        (true, false) => (p.text, 0xffffffff),
+    };
+    // Header: the brand's four-petal mark, title and subtitle.
+    for (i, (dx, dy)) in [(0.0, 0.0), (12.0, 0.0), (0.0, 12.0), (12.0, 12.0)].into_iter().enumerate() {
+        let path = rounded(24.0 + dx, 20.0 + dy, 10.0, 10.0, if i == 0 { 5.0 } else { 3.0 });
+        fill(g, path, if i == 0 { ink } else { with_alpha(p.text, 0.85) });
+        GdipDeletePath(path);
+    }
+    styled(s, "Petal", rect(56.0, 14.0, 180.0, 24.0), 18.0, p.text, left);
+    styled(s, "Settings", rect(56.0, 36.0, 180.0, 18.0), 12.5, secondary, quiet);
+    // Close button.
+    let (cx, cy) = (w - 34.0, 30.0);
+    if panel.hover == 3 {
+        ellipse(g, cx - 14.0, cy - 14.0, 28.0, 28.0, with_alpha(p.text, 0.12));
+    }
+    let mut pen = null_mut();
+    GdipCreatePen1(p.text, 1.6, UnitPixel, &mut pen);
+    GdipSetPenStartCap(pen, LineCapRound);
+    GdipSetPenEndCap(pen, LineCapRound);
+    GdipDrawLine(g, pen, cx - 5.0, cy - 5.0, cx + 5.0, cy + 5.0);
+    GdipDrawLine(g, pen, cx + 5.0, cy - 5.0, cx - 5.0, cy + 5.0);
+    GdipDeletePen(pen);
+    for (i, (title, detail)) in PANEL_ROWS.iter().enumerate() {
+        let y = ROW_TOP + i as f32 * ROW_STEP;
+        if panel.hover == i as i32 {
+            let row = rounded(16.0, y, w - 32.0, 56.0, 14.0);
+            fill(g, row, if glass.is_some() { with_alpha(0xffffffff, if dark { 0.10 } else { 0.38 }) } else { with_alpha(p.text, 0.08) });
+            GdipDeletePath(row);
+        }
+        styled(s, title, rect(32.0, y + 8.0, 210.0, 22.0), 15.0, p.text, left);
+        styled(s, detail, rect(32.0, y + 30.0, 220.0, 18.0), 12.0, secondary, quiet);
+        // Switch: the track fills with ink, the knob glides across.
+        let on = panel.switches[i];
+        let (tx, ty, tw, th) = (w - 32.0 - 46.0, y + 16.0, 46.0, 24.0);
+        let track = rounded(tx, ty, tw, th, th / 2.0);
+        fill(g, track, mix(with_alpha(p.text, 0.18), ink, on));
+        GdipDeletePath(track);
+        let knob = 16.0 + 2.0 * (on * PI).sin();
+        let kx = tx + 4.0 + on * (tw - 8.0 - 16.0) + (16.0 - knob) / 2.0;
+        ellipse(g, kx, ty + (th - knob) / 2.0, knob, knob, mix(0xfff2f2f2, knob_on, on));
+    }
+    let footer = Style { left: false, bold: false };
+    styled(s, "Right-click any file to convert it", rect(0.0, h - 34.0, w, 18.0), 11.5, secondary, footer);
 }
 pub unsafe fn paint(
     hwnd: HWND,
     scale: f64,
-    name: &str,
     dark: bool,
     elapsed: Option<u64>,
     visual: &Visual,
 ) {
     let mut ps = zeroed();
     BeginPaint(hwnd, &mut ps);
-    if let Result::Ok(s) = surface_visual(scale, name, dark, elapsed, visual) {
-        let source = POINT { x: 0, y: 0 };
-        let size = SIZE {
-            cx: s.width,
-            cy: s.height,
-        };
-        let blend = BLENDFUNCTION {
-            BlendOp: AC_SRC_OVER as u8,
-            BlendFlags: 0,
-            SourceConstantAlpha: 255,
-            AlphaFormat: AC_SRC_ALPHA as u8,
-        };
-        UpdateLayeredWindow(
-            hwnd,
-            null_mut(),
-            null(),
-            &size,
-            s.dc,
-            &source,
-            0,
-            &blend,
-            ULW_ALPHA,
-        );
+    if let Result::Ok(s) = surface_visual(scale, dark, elapsed, visual) {
+        present(hwnd, &s, 255);
     }
     EndPaint(hwnd, &ps);
 }
@@ -766,7 +1071,7 @@ mod tests {
         unsafe {
             assert!(initialize());
             let s = surface(0.75, -1, "photo sample 123 \u{00e9}.jpg", true, None).unwrap();
-            let font = native_font(16.0);
+            let font = native_font(16.0, true);
             assert!(!font.is_null());
             let previous = SelectObject(s.dc, font);
             let mut face = [0u16; 32];
@@ -791,7 +1096,8 @@ mod tests {
                 "Clear text 123 \u{00e9}",
                 rect(0.0, 150.0, 300.0, 30.0),
                 16.0,
-                0xffffffff
+                0xffffffff,
+                Style { left: false, bold: true }
             ));
             let after = std::slice::from_raw_parts(s.pixels, before.len());
             assert!(before.iter().zip(after).any(|(a, b)| a != b));
@@ -926,7 +1232,7 @@ mod tests {
                 let mut visual = Visual::menu(hover, accent);
                 visual.formats = crate::convert::menu_formats(std::path::Path::new("photo.jpg"));
                 visual.feedback = feedback;
-                let s = surface_visual(0.75, "photo.jpg", dark, None, &visual).unwrap();
+                let s = surface_visual(0.75, dark, None, &visual).unwrap();
                 save(&s, &out.join(format!("{name}.png")));
                 if matches!(feedback, Feedback::Menu) {
                     let image = image::open(out.join(format!("{name}.png")))
@@ -1007,7 +1313,7 @@ mod tests {
                     visual.feedback = feedback;
                     let path = out.join(format!("center-{name}-{dark}-{scale}.png"));
                     unsafe {
-                        let s = surface_visual(scale, "photo.tiff", dark, None, &visual).unwrap();
+                        let s = surface_visual(scale, dark, None, &visual).unwrap();
                         save(&s, &path);
                     }
                     let pixels = image::open(path).unwrap().to_rgba8();
@@ -1035,7 +1341,7 @@ mod tests {
                 let path = out.join(format!("center-check-reduced-{dark}-{scale}.png"));
                 unsafe {
                     save(
-                        &surface_visual(scale, "photo.tiff", dark, None, &visual).unwrap(),
+                        &surface_visual(scale, dark, None, &visual).unwrap(),
                         &path,
                     );
                 }
@@ -1047,8 +1353,8 @@ mod tests {
     fn reveal_is_ordered_and_finishes() {
         assert_eq!(petal_progress(Some(0), 0), 0.0);
         for index in 0..6 {
-            assert_eq!(petal_progress(Some(index as u64 * 60), index), 0.0);
-            assert!(petal_progress(Some(index as u64 * 60 + 20), index) > 0.0);
+            assert_eq!(petal_progress(Some(index as u64 * STAGGER_MS), index), 0.0);
+            assert!(petal_progress(Some(index as u64 * STAGGER_MS + 20), index) > 0.0);
             assert_eq!(petal_progress(Some(ANIMATION_MS), index), 1.0);
             assert_eq!(petal_progress(None, index), 1.0);
         }
@@ -1088,9 +1394,90 @@ mod tests {
                 _ => (),
             }
             unsafe {
-                let surface = surface_visual(1.0, "sample.jpg", true, elapsed, &visual).unwrap();
+                let surface = surface_visual(1.0, true, elapsed, &visual).unwrap();
                 save(&surface, &out.join(format!("frame-{frame:03}.png")));
             }
+        }
+    }
+    #[test]
+    fn liquid_glass_frosts_refracts_and_renders_opaque_panes() {
+        let out = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/visual-checks");
+        std::fs::create_dir_all(&out).unwrap();
+        for (dark, scale) in [(true, 0.75), (false, 1.5)] {
+            let side = (400.0 * scale) as usize;
+            // A busy striped "desktop": glass must smooth it, never pass it through raw.
+            let raw: Vec<u32> = (0..side * side)
+                .map(|i| if (i % side / 6 + i / side / 6) % 2 == 0 { 0xffe0402a } else { 0xff2a60e0 })
+                .collect();
+            let glass = glass_from(&raw, side, side, scale, dark, menu_bend);
+            assert!(glass.iter().all(|c| c >> 24 == 255));
+            let spread = |v: &[u32]| {
+                let red: Vec<i32> = v.iter().map(|c| ((c >> 16) & 255) as i32).collect();
+                red.iter().max().unwrap() - red.iter().min().unwrap()
+            };
+            assert!(spread(&glass) < spread(&raw) / 3, "glass must be frosted");
+            for (name, elapsed) in [("rest", None), ("bubble", Some(120))] {
+                let mut visual = Visual::menu(1, 0xff0078d4);
+                visual.formats = crate::convert::menu_formats(std::path::Path::new("photo.jpg"));
+                visual.glass = Some(&glass);
+                let path = out.join(format!("glass-{name}-{dark}-{scale}.png"));
+                unsafe {
+                    save(&surface_visual(scale, dark, elapsed, &visual).unwrap(), &path);
+                }
+                let image = image::open(path).unwrap().to_rgba8();
+                assert_eq!(image.get_pixel(0, 0)[3], 0);
+                let at = |x: f64, y: f64| *image.get_pixel((x * scale) as u32, (y * scale) as u32);
+                assert_eq!(at(200.0, 250.0)[3], 255, "glass center is opaque");
+                if elapsed.is_none() {
+                    for i in 0..6 {
+                        let (x, y) = polar(160.0, -90.0 + i as f32 * 60.0);
+                        let (dx, dy) = hover_offset(i, visual.hover[i], true);
+                        assert_eq!(at((x + dx) as f64, (y + dy) as f64)[3], 255, "petal {i}");
+                    }
+                    // Hover lights the glass up (brighter, still neutral) instead of tinting it.
+                    let (x, y) = polar(160.0, -30.0);
+                    let (dx, dy) = hover_offset(1, 1.0, true);
+                    let p = at((x + dx) as f64, (y + dy) as f64);
+                    let rest = at(polar(160.0, 150.0).0 as f64, polar(160.0, 150.0).1 as f64);
+                    let sum = |c: image::Rgba<u8>| c.0[..3].iter().map(|&v| v as i32).sum::<i32>();
+                    assert!(sum(p) > sum(rest) + 30, "hover glow missing: {p:?} vs {rest:?}");
+                }
+            }
+        }
+    }
+    #[test]
+    fn settings_panel_renders_and_hits_its_controls() {
+        let out = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/visual-checks");
+        std::fs::create_dir_all(&out).unwrap();
+        assert_eq!(panel_hit(PANEL_W as f32 - 34.0, 30.0), 3);
+        for row in 0..3 {
+            assert_eq!(panel_hit(100.0, ROW_TOP + row as f32 * ROW_STEP + 28.0), row);
+        }
+        assert_eq!(panel_hit(5.0, 100.0), -1);
+        for (dark, scale, glassy) in [(true, 1.0, true), (false, 1.5, true), (true, 1.25, false)] {
+            let (w, h) = ((PANEL_W as f64 * scale) as usize, (PANEL_H as f64 * scale) as usize);
+            let raw: Vec<u32> = (0..w * h)
+                .map(|i| 0xff000000 | ((i % w * 255 / w) as u32) << 16 | ((i / w * 255 / h) as u32) << 8 | 0x90)
+                .collect();
+            let glass = glass_from(&raw, w, h, scale, dark, panel_bend);
+            let panel = Panel {
+                accent: 0xff0078d4,
+                glass: glassy.then_some(&glass[..]),
+                switches: [1.0, 0.5, 0.0],
+                hover: 0,
+                open: 1.0,
+                alpha: 255,
+            };
+            let path = out.join(format!("panel-{dark}-{scale}-{glassy}.png"));
+            unsafe {
+                let s = new_surface(PANEL_W, PANEL_H, scale).unwrap();
+                draw_panel(&s, scale as f32, dark, &panel);
+                GdipFlush(s.graphics, FlushIntentionSync);
+                save(&s, &path);
+            }
+            let image = image::open(path).unwrap().to_rgba8();
+            assert_eq!(image.get_pixel(0, 0)[3], 0, "rounded corner stays transparent");
+            assert_eq!(image.get_pixel(w as u32 / 2, h as u32 / 2)[3], 255);
         }
     }
     #[test]
@@ -1156,24 +1543,9 @@ mod tests {
                         image::Rgba([0, 120, 212, 255])
                     );
                     assert_eq!(
-                        *image.get_pixel((194.0 * scale) as u32, (154.0 * scale) as u32),
+                        *image.get_pixel((190.0 * scale) as u32, (190.0 * scale) as u32),
                         image::Rgba([0, 0, 0, 255])
                     );
-                    for (top, bottom) in [(182.0, 207.0), (212.0, 232.0)] {
-                        assert!(
-                            image
-                                .enumerate_pixels()
-                                .any(|(x, y, p)| x as f64 > 128.0 * scale
-                                    && (x as f64) < 272.0 * scale
-                                    && y as f64 > top * scale
-                                    && (y as f64) < bottom * scale
-                                    && p[3] == 255
-                                    && p[0] < 10
-                                    && p[1] < 10
-                                    && p[2] < 10),
-                            "Black central text missing in {name}"
-                        );
-                    }
                 }
                 assert_eq!(
                     image.dimensions(),

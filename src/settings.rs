@@ -1,10 +1,14 @@
 use windows_sys::Win32::System::Registry::*;
 const KEY: &str = "Software\\Petal";
-const SOUND: &str = "SoundEnabled";
+pub const SOUND: &str = "SoundEnabled";
+pub const GLASS: &str = "LiquidGlass";
+pub const MOTION: &str = "Animations";
 
-pub fn sound_enabled() -> bool {
+/// Every Petal option is an on/off DWORD under HKCU\Software\Petal, on by default.
+pub fn enabled(name: &str) -> bool {
     #[cfg(test)]
     {
+        let _ = name;
         true
     }
     #[cfg(not(test))]
@@ -14,7 +18,7 @@ pub fn sound_enabled() -> bool {
         let status = RegGetValueW(
             HKEY_CURRENT_USER,
             crate::wide(KEY).as_ptr(),
-            crate::wide(SOUND).as_ptr(),
+            crate::wide(name).as_ptr(),
             RRF_RT_REG_DWORD,
             std::ptr::null_mut(),
             &mut value as *mut _ as *mut _,
@@ -27,13 +31,13 @@ pub fn sound_enabled() -> bool {
         }
     }
 }
-pub fn save_sound(enabled: bool) -> Result<(), String> {
+pub fn save(name: &str, enabled: bool) -> Result<(), String> {
     let value = u32::from(enabled);
     let result = unsafe {
         RegSetKeyValueW(
             HKEY_CURRENT_USER,
             crate::wide(KEY).as_ptr(),
-            crate::wide(SOUND).as_ptr(),
+            crate::wide(name).as_ptr(),
             REG_DWORD,
             &value as *const _ as *const _,
             4,
@@ -43,7 +47,7 @@ pub fn save_sound(enabled: bool) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "Could not save the sound setting: {}",
+            "Could not save the setting: {}",
             std::io::Error::from_raw_os_error(result as i32)
         ))
     }

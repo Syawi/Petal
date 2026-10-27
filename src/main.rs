@@ -3,6 +3,7 @@ mod convert;
 mod documents;
 mod media;
 mod notifications;
+mod panel;
 mod pdf;
 mod render;
 mod settings;
@@ -51,6 +52,9 @@ struct State {
     accent: u32,
     motion: bool,
     sound_enabled: bool,
+    glass_enabled: bool,
+    motion_enabled: bool,
+    glass: Option<Vec<u32>>,
     notifications: Option<notifications::Notifications>,
     hover_from: [f32; 7],
     hover_started: Option<Instant>,
@@ -78,8 +82,12 @@ impl State {
         Self {
             dark: render::dark_theme(),
             accent: render::system_accent(),
-            motion: unsafe { animations_enabled() },
-            sound_enabled: settings::sound_enabled(),
+            // Petal's own Animations setting wins over the system-wide toggle, which many PCs turn off for speed.
+            motion: settings::enabled(settings::MOTION),
+            sound_enabled: settings::enabled(settings::SOUND),
+            glass_enabled: settings::enabled(settings::GLASS),
+            motion_enabled: settings::enabled(settings::MOTION),
+            glass: None,
             notifications: None,
             hover_from: [0.0; 7],
             hover_started: None,
@@ -283,16 +291,6 @@ unsafe fn interactive_hit(x: f64, y: f64) -> i32 {
         index
     }
 }
-unsafe fn animations_enabled() -> bool {
-    let mut enabled = 1i32;
-    SystemParametersInfoW(
-        SPI_GETCLIENTAREAANIMATION,
-        0,
-        &mut enabled as *mut _ as *mut _,
-        0,
-    );
-    enabled != 0
-}
 unsafe fn source_is_foreground(root: HWND) -> bool {
     let foreground = GetForegroundWindow();
     foreground == root
@@ -466,7 +464,13 @@ unsafe fn show(hwnd: HWND) {
         .min((a.bottom - h).max(a.top));
     (*STATE).dark = render::dark_theme();
     (*STATE).accent = render::system_accent();
-    (*STATE).motion = animations_enabled();
+    (*STATE).motion = (*STATE).motion_enabled;
+    // shortcut: the backdrop is a snapshot taken while hidden; video behind the menu freezes for its lifetime.
+    (*STATE).glass = if (*STATE).glass_enabled {
+        render::capture_glass(x, y, w, h, s, (*STATE).dark, render::menu_bend)
+    } else {
+        None
+    };
     if let Some(source) = &(*STATE).source {
         (*STATE).formats = convert::menu_formats(source);
     }
@@ -484,12 +488,6 @@ unsafe fn show(hwnd: HWND) {
     InvalidateRect(hwnd, null(), 0);
 }
 unsafe fn paint(hwnd: HWND) {
-    let filename = (*STATE)
-        .source
-        .as_ref()
-        .and_then(|p| p.file_name())
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
     let feedback = if (*STATE).busy {
         render::Feedback::Working {
             elapsed: (*STATE)
@@ -510,11 +508,11 @@ unsafe fn paint(hwnd: HWND) {
         motion: (*STATE).motion,
         formats: (*STATE).formats,
         feedback,
+        glass: (*STATE).glass.as_deref(),
     };
     render::paint(
         hwnd,
         (*STATE).scale,
-        &filename,
         (*STATE).dark,
         (*STATE)
             .animation_started
@@ -614,7 +612,7 @@ unsafe fn act(hwnd: HWND, index: i32) {
     });
     SetTimer(hwnd, 1, 30, None);
 }
-unsafe fn tray_menu(sound_enabled: bool, busy: bool) -> HMENU {
+unsafe fn tray_menu(busy: bool) -> HMENU {
     let menu = CreatePopupMenu();
     AppendMenuW(
         menu,
@@ -622,12 +620,7 @@ unsafe fn tray_menu(sound_enabled: bool, busy: bool) -> HMENU {
         1,
         wide("Petal · File Explorer and desktop").as_ptr(),
     );
-    AppendMenuW(
-        menu,
-        MF_STRING | if sound_enabled { 0 } else { MF_CHECKED },
-        3,
-        wide("Mute sound").as_ptr(),
-    );
+    AppendMenuW(menu, MF_STRING, 6, wide("Settings…").as_ptr());
     AppendMenuW(menu, MF_SEPARATOR, 0, null());
     AppendMenuW(
         menu,
@@ -825,8 +818,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             hide(hwnd);
             0
         }
-        TRAY if lp as u32 == WM_RBUTTONUP || lp as u32 == WM_LBUTTONUP => {
-            let menu = tray_menu((*STATE).sound_enabled, (*STATE).busy);
+        TRAY if lp as u32 == WM_LBUTTONUP => {
+            panel::open(hwnd, (*STATE).accent, (*STATE).dark);
+            0
+        }
+        TRAY if lp as u32 == WM_RBUTTONUP => {
+            let menu = tray_menu((*STATE).busy);
             let mut p = zeroed();
             GetCursorPos(&mut p);
             SetForegroundWindow(hwnd);
@@ -840,8 +837,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 null(),
             );
             DestroyMenu(menu);
-            if cmd == 3 {
-                SendMessageW(hwnd, WM_COMMAND, 3, 0);
+            if cmd == 6 {
+                panel::open(hwnd, (*STATE).accent, (*STATE).dark);
             }
             if cmd == 2 && !(*STATE).busy {
                 PostQuitMessage(0);
@@ -855,12 +852,17 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             }
             0
         }
-        WM_COMMAND if wp == 3 => {
-            let enabled = !(*STATE).sound_enabled;
-            match settings::save_sound(enabled) {
+        WM_COMMAND if (3..=5).contains(&wp) => {
+            let (name, flag) = match wp {
+                3 => (settings::SOUND, &mut (*STATE).sound_enabled),
+                4 => (settings::GLASS, &mut (*STATE).glass_enabled),
+                _ => (settings::MOTION, &mut (*STATE).motion_enabled),
+            };
+            let enabled = !*flag;
+            match settings::save(name, enabled) {
                 Ok(()) => {
-                    (*STATE).sound_enabled = enabled;
-                    if !enabled {
+                    *flag = enabled;
+                    if wp == 3 && !enabled {
                         sound::stop();
                     }
                 }
@@ -1029,17 +1031,16 @@ mod tests {
             );
             DeleteObject(balloon.hbmColor);
             DeleteObject(balloon.hbmMask);
-            for enabled in [false, true] {
-                let menu = tray_menu(enabled, true);
+            for busy in [false, true] {
+                let menu = tray_menu(busy);
                 assert!(!menu.is_null());
                 let mut label = [0u16; 64];
-                GetMenuStringW(menu, 3, label.as_mut_ptr(), 64, MF_BYCOMMAND);
-                assert!(String::from_utf16_lossy(&label).starts_with("Mute sound"));
+                GetMenuStringW(menu, 6, label.as_mut_ptr(), 64, MF_BYCOMMAND);
+                assert!(String::from_utf16_lossy(&label).starts_with("Settings"));
                 assert_eq!(
-                    GetMenuState(menu, 3, MF_BYCOMMAND) & MF_CHECKED,
-                    if enabled { 0 } else { MF_CHECKED }
+                    GetMenuState(menu, 2, MF_BYCOMMAND) & MF_DISABLED != 0,
+                    busy
                 );
-                assert_ne!(GetMenuState(menu, 2, MF_BYCOMMAND) & MF_DISABLED, 0);
                 DestroyMenu(menu);
             }
             let instance = GetModuleHandleW(null());
