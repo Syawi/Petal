@@ -41,6 +41,10 @@ Petal, Windows 11 के लिए एक नेटिव टूल है। �
 
 **आवश्यकता: Windows 11 x64।**
 
+### v1.0 डाउनलोड करें
+
+[v1.0 रिलीज़](https://github.com/Syawi/Petal/releases/tag/v1.0) से **Petal-v1.0-Windows-x64.zip** डाउनलोड करें। पूरा फ़ोल्डर निकालें और `Petal.exe` चलाएँ। इसमें ऐप, स्रोत और दस्तावेज़ शामिल हैं। ऑडियो और वीडियो टूल अलग से `Install-MediaEngine.ps1` से इंस्टॉल करें।
+
 ### बिल्ड डाउनलोड करें
 
 [Windows workflow](https://github.com/Syawi/Petal/actions/workflows/windows.yml) का कोई सफल रन खोलें और उसके artifacts से **Petal-Windows-x64** डाउनलोड करें। GitHub में साइन इन करना ज़रूरी है। पूरे फ़ोल्डर को निकालें और `Petal.exe` चलाएँ।

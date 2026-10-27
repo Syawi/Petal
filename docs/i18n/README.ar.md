@@ -43,6 +43,10 @@ Petal أداة أصلية لنظام Windows 11 تجمع تحويل الصور �
 
 **المتطلبات: Windows 11 x64.**
 
+### تنزيل v1.0
+
+نزّل **Petal-v1.0-Windows-x64.zip** من [إصدار v1.0](https://github.com/Syawi/Petal/releases/tag/v1.0). فك ضغط المجلد كاملًا وشغّل `Petal.exe`. تتضمن الحزمة التطبيق والمصدر والوثائق. تُثبّت أدوات الصوت والفيديو بشكل منفصل باستخدام `Install-MediaEngine.ps1`.
+
 ### تنزيل نسخة مبنية
 
 افتح تشغيلًا ناجحًا من [سير عمل Windows](https://github.com/Syawi/Petal/actions/workflows/windows.yml)، ثم نزّل **Petal-Windows-x64** من artifacts. يجب تسجيل الدخول إلى GitHub. فك ضغط المجلد كاملًا وشغّل `Petal.exe`.

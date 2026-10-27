@@ -61,6 +61,10 @@ cd Petal
 
 The build script prepares the pinned FFmpeg/FFprobe tools, runs tests and creates Petal.exe. The one-time media download is SHA-256 verified. GNU builds also need MinGW-w64 binutils; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+### Download v1.0
+
+Download **Petal-v1.0-Windows-x64.zip** from the [v1.0 release](https://github.com/Syawi/Petal/releases/tag/v1.0). Extract the entire folder and run `Petal.exe`. The archive includes the app, source and documentation. Audio/video tools are installed separately with `Install-MediaEngine.ps1`.
+
 ### Download a CI build
 
 Open a successful [Windows workflow run](https://github.com/Syawi/Petal/actions/workflows/windows.yml) and download **Petal-Windows-x64** from its artifacts. Extract the entire folder and run Petal.exe. GitHub requires signing in to download workflow artifacts.

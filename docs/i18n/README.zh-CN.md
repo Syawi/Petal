@@ -41,6 +41,10 @@ Petal 是一款原生 Windows 11 工具，将图片、音频、视频和文本�
 
 **系统要求：Windows 11 x64。**
 
+### 下载 v1.0
+
+从 [v1.0 发布页面](https://github.com/Syawi/Petal/releases/tag/v1.0)下载 **Petal-v1.0-Windows-x64.zip**。完整解压文件夹并运行 `Petal.exe`。压缩包包含应用、源码和文档。音视频工具需通过 `Install-MediaEngine.ps1` 单独安装。
+
 ### 下载构建产物
 
 打开一次成功的 [Windows 工作流运行](https://github.com/Syawi/Petal/actions/workflows/windows.yml)，在 artifacts 中下载 **Petal-Windows-x64**。需要登录 GitHub。完整解压文件夹，然后运行 `Petal.exe`。

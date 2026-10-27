@@ -41,6 +41,10 @@ Audio → MP4 genera un vídeo con fondo negro y el sonido del archivo. Vídeo �
 
 **Requisitos: Windows 11 x64.**
 
+### Descargar v1.0
+
+Descarga **Petal-v1.0-Windows-x64.zip** desde la [versión v1.0](https://github.com/Syawi/Petal/releases/tag/v1.0). Extrae toda la carpeta y ejecuta `Petal.exe`. Incluye la aplicación, el código fuente y la documentación. Las herramientas de audio y vídeo se instalan por separado con `Install-MediaEngine.ps1`.
+
 ### Descargar una compilación
 
 Abre una ejecución correcta del [workflow de Windows](https://github.com/Syawi/Petal/actions/workflows/windows.yml) y descarga **Petal-Windows-x64** desde sus artifacts. Es necesario iniciar sesión en GitHub. Extrae toda la carpeta y ejecuta `Petal.exe`.
