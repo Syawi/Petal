@@ -57,7 +57,11 @@ impl Window {
             || self.flipped.iter().flatten().any(|&s| ms(s) < SWITCH_MS)
     }
     unsafe fn paint(&self) {
-        let open = if self.motion { (ms(self.opened) / OPEN_MS).min(1.0) } else { 1.0 };
+        let open = if self.motion {
+            (ms(self.opened) / OPEN_MS).min(1.0)
+        } else {
+            1.0
+        };
         let fade = match self.closing {
             Some(start) => 1.0 - (ms(start) / CLOSE_MS).min(1.0),
             None => (open * 3.0).min(1.0),
@@ -148,10 +152,21 @@ pub unsafe fn open(owner: HWND, accent: u32, dark: bool) {
     GetCursorPos(&mut cursor);
     let mut info: MONITORINFO = zeroed();
     info.cbSize = size_of::<MONITORINFO>() as u32;
-    GetMonitorInfoW(MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST), &mut info);
+    GetMonitorInfoW(
+        MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST),
+        &mut info,
+    );
     let a = info.rcWork;
     // Park the hidden window on the target monitor first so it reports that monitor's DPI.
-    SetWindowPos(p.hwnd, HWND_TOPMOST, a.right - 1, a.bottom - 1, 1, 1, SWP_NOACTIVATE);
+    SetWindowPos(
+        p.hwnd,
+        HWND_TOPMOST,
+        a.right - 1,
+        a.bottom - 1,
+        1,
+        1,
+        SWP_NOACTIVATE,
+    );
     p.scale = GetDpiForWindow(p.hwnd).max(96) as f64 / 96.0;
     let (w, h) = (
         (render::PANEL_W as f64 * p.scale).round() as i32,

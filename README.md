@@ -61,9 +61,9 @@ cd Petal
 
 The build script prepares the pinned FFmpeg/FFprobe tools, runs tests and creates Petal.exe. The one-time media download is SHA-256 verified. GNU builds also need MinGW-w64 binutils; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-### Download v1.1
+### Download v1.2
 
-Download **[Petal.exe](https://github.com/Syawi/Petal/releases/download/v1.1/Petal.exe)** and run it directly. Windows 11 x64 is required. No ZIP, adjacent assets folder, administrator access or Office installation is needed.
+Download **[Petal.exe](https://github.com/Syawi/Petal/releases/download/v1.2/Petal.exe)** and run it directly. Windows 11 x64 is required. No ZIP, adjacent assets folder, administrator access or Office installation is needed.
 
 The logo, completion sound and license notices are embedded. Petal stores its small runtime files under `%LOCALAPPDATA%/Petal`. On the first audio/video conversion, it automatically downloads and verifies the pinned FFmpeg engine (about 109 MB); later conversions work offline. Images and documents work without this download.
 

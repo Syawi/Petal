@@ -25,4 +25,4 @@ Documents are converted as text and paragraphs, without retaining the original l
 Petal uses the approved blue three-petal ribbon mark. The same mark identifies the executable, tray and Windows notifications. The shipped interface, messages, documentation and build scripts are in English.
 
 ## Standalone distribution
-v1.1 ships as one Petal.exe. Its logo, completion sound and license notices are embedded; runtime files use LOCALAPPDATA/Petal. The first audio/video conversion downloads the pinned, checksum-verified FFmpeg build to the user cache; subsequent conversions are offline. Images and text documents need no network. No files need to sit beside the executable.
+v1.2 ships as one Petal.exe. Its logo, completion sound and license notices are embedded; runtime files use LOCALAPPDATA/Petal. The first audio/video conversion downloads the pinned, checksum-verified FFmpeg build to the user cache; subsequent conversions are offline. Images and text documents need no network. No files need to sit beside the executable.

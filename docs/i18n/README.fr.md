@@ -41,9 +41,9 @@ Audio → MP4 crée une vidéo avec un fond noir et le son du fichier. Vidéo �
 
 **Configuration requise : Windows 11 x64.**
 
-### Télécharger v1.1
+### Télécharger v1.2
 
-Télécharge **[Petal.exe](https://github.com/Syawi/Petal/releases/download/v1.1/Petal.exe)** et lance-le directement sur Windows 11 x64. Aucun ZIP, dossier de ressources, accès administrateur ni installation d’Office n’est nécessaire.
+Télécharge **[Petal.exe](https://github.com/Syawi/Petal/releases/download/v1.2/Petal.exe)** et lance-le directement sur Windows 11 x64. Aucun ZIP, dossier de ressources, accès administrateur ni installation d’Office n’est nécessaire.
 
 Le logo, le son et les licences sont intégrés. Les petits fichiers de fonctionnement sont créés dans `%LOCALAPPDATA%/Petal`. À la première conversion audio/vidéo, Petal télécharge et vérifie automatiquement le moteur FFmpeg (environ 109 Mo). Les conversions suivantes fonctionnent hors ligne ; les images et documents n’ont pas besoin de ce téléchargement.
 

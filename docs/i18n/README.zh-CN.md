@@ -41,9 +41,9 @@ Petal 是一款原生 Windows 11 工具，将图片、音频、视频和文本�
 
 **系统要求：Windows 11 x64。**
 
-### 下载 v1.1
+### 下载 v1.2
 
-下载 **[Petal.exe](https://github.com/Syawi/Petal/releases/download/v1.1/Petal.exe)**，在 Windows 11 x64 上直接运行。无需 ZIP、资源文件夹、管理员权限或 Office。
+下载 **[Petal.exe](https://github.com/Syawi/Petal/releases/download/v1.2/Petal.exe)**，在 Windows 11 x64 上直接运行。无需 ZIP、资源文件夹、管理员权限或 Office。
 
 应用已内置图标、提示音和许可证，并在 `%LOCALAPPDATA%/Petal` 中保存运行文件。首次转换音频或视频时会自动下载并校验 FFmpeg 引擎（约 109 MB）；此后可离线转换。图片和文档转换无需此下载。
 
