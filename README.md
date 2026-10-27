@@ -27,7 +27,7 @@ Petal is a native Windows 11 utility that puts image, audio, video and text-docu
 - **Clear feedback.** A spinner, a completion check, a branded Windows notification and an optional sound.
 - **Native and local.** Rust with Win32/GDI+, no browser runtime, no file uploads and no network during conversion.
 
-> **The converted file replaces the original.** Petal verifies the result before removing the source and refuses to overwrite an existing destination. Use copies for your first tests. Metadata, document layout and unsupported content are not guaranteed to survive.
+> **Your original file stays unchanged.** Petal verifies the converted file and saves it alongside the original, using the same name with the new extension (for example, `photo.jpg` → `photo.webp`). Existing destinations are never overwritten. Metadata and layout in the converted copy may differ.
 
 ## Formats
 
@@ -75,7 +75,7 @@ Keep assets/ and, when installed, ffmpeg/ beside Petal.exe. No administrator acc
 
 1. Launch Petal.exe; its blue icon appears in the system tray, possibly under hidden icons.
 2. Right-click one supported file in Explorer or on the desktop.
-3. Click a format. Petal writes and checks the replacement, then displays **Conversion complete**.
+3. Click a format. Petal writes and checks the converted copy, then displays **Conversion complete**.
 
 The center opens the **Windows menu**. **Shift + right-click** bypasses Petal. Click outside or press **Esc** to dismiss the wheel; an active conversion continues in the background.
 

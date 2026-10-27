@@ -610,7 +610,7 @@ unsafe fn act(hwnd: HWND, index: i32) {
 
     let sender = (*STATE).sender.clone();
     thread::spawn(move || {
-        let _ = sender.send(Reply::Converted(convert::replace(&source, format)));
+        let _ = sender.send(Reply::Converted(convert::convert_file(&source, format)));
     });
     SetTimer(hwnd, 1, 30, None);
 }
@@ -894,7 +894,7 @@ fn main() {
                 .position(|(_, _, ext)| args[3].to_string_lossy().eq_ignore_ascii_case(ext));
             let result = index
                 .ok_or_else(|| "Unknown format".into())
-                .and_then(|i| convert::replace(&PathBuf::from(&args[2]), i));
+                .and_then(|i| convert::convert_file(&PathBuf::from(&args[2]), i));
             if let Err(e) = result {
                 MessageBoxW(
                     null_mut(),
@@ -1175,7 +1175,7 @@ mod tests {
             assert!(!(*STATE).busy);
             assert_eq!(sound::PLAYS.load(Ordering::Relaxed), 0);
             assert!(start.elapsed().as_millis() >= MIN_WORKING_MS);
-            assert!(!source.exists());
+            assert!(source.exists());
             assert!(source.with_extension("tiff").exists());
             assert_eq!(
                 (*STATE).source.as_ref(),
@@ -1201,7 +1201,7 @@ mod tests {
             assert!(!(*STATE).busy);
             assert!((*STATE).success_started.is_some());
             assert!(source.with_extension("jpg").exists());
-            assert!(!source.with_extension("tiff").exists());
+            assert!(source.with_extension("tiff").exists());
             assert_eq!(sound::PLAYS.load(Ordering::Relaxed), 1);
             paint(window);
             wndproc(window, WM_TIMER, 1, 0);
@@ -1223,7 +1223,7 @@ mod tests {
             }
             assert!(!(*STATE).busy);
             assert!(audio.with_extension("mp4").is_file());
-            assert!(!audio.exists());
+            assert!(audio.exists());
             assert_eq!(sound::PLAYS.load(Ordering::Relaxed), 1);
             hide(window);
             let document = dir.join("sample \u{00e9}.txt");
@@ -1244,7 +1244,7 @@ mod tests {
             }
             assert!(!(*STATE).busy);
             assert!(document.with_extension("pdf").is_file());
-            assert!(!document.exists());
+            assert!(document.exists());
             assert_eq!(sound::PLAYS.load(Ordering::Relaxed), 1);
             hide(window);
             (*STATE).source = None;

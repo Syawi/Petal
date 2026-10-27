@@ -90,9 +90,9 @@ impl Drop for Temporary {
 // Hold the source open without write/delete sharing until the destination is committed.
 pub(crate) fn source_file(path: &Path) -> Result<File, String> {
     use std::os::windows::fs::OpenOptionsExt;
-    use windows_sys::Win32::Storage::FileSystem::{DELETE, FILE_FLAG_OPEN_REPARSE_POINT};
+    use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
     let file = OpenOptions::new()
-        .access_mode(0x80000000 | DELETE)
+        .read(true)
         .share_mode(1)
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
         .open(path)
@@ -106,18 +106,15 @@ pub(crate) fn source_file(path: &Path) -> Result<File, String> {
     {
         return Err("Links and online-only cloud files are not supported. Copy the file to a local folder first.".into());
     }
-    if metadata.permissions().readonly() {
-        return Err("The file is read-only.".into());
-    }
     Ok(file)
 }
 
-pub fn replace(source: &Path, index: usize) -> Result<PathBuf, String> {
+pub fn convert_file(source: &Path, index: usize) -> Result<PathBuf, String> {
     if crate::documents::supported(source) {
-        return crate::documents::replace(source, index);
+        return crate::documents::convert_file(source, index);
     }
     if crate::media::kind(source).is_some() {
-        return crate::media::replace(source, index);
+        return crate::media::convert_file(source, index);
     }
     if index >= 7 {
         return Err("This format is not an image format.".into());
@@ -258,7 +255,6 @@ pub(crate) fn publish(
     temporary: &Path,
     destination: &Path,
 ) -> Result<PathBuf, String> {
-    use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::*;
     // Windows rename refuses an existing target, including a target created since exists().
     if unsafe {
@@ -271,23 +267,6 @@ pub(crate) fn publish(
     {
         return Err(format!(
             "Could not save the converted file. The original was kept: {}",
-            std::io::Error::last_os_error()
-        ));
-    }
-    // Delete the locked file by handle, so a changed pathname cannot delete another file.
-    let disposition = FILE_DISPOSITION_INFO { DeleteFile: 1 };
-    let deleted = unsafe {
-        SetFileInformationByHandle(
-            source_handle.as_raw_handle(),
-            FileDispositionInfo,
-            &disposition as *const _ as *const _,
-            std::mem::size_of::<FILE_DISPOSITION_INFO>() as u32,
-        )
-    };
-    if deleted == 0 {
-        return Err(format!(
-            "Converted file created: {}. The original was kept because it could not be removed: {}",
-            destination.display(),
             std::io::Error::last_os_error()
         ));
     }
@@ -312,6 +291,23 @@ mod tests {
             .save(&path)
             .unwrap();
         (dir, path)
+    }
+    #[test]
+    fn read_only_source_is_preserved() {
+        let (dir, source) = fixture();
+        let original = fs::read(&source).unwrap();
+        let mut permissions = fs::metadata(&source).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&source, permissions.clone()).unwrap();
+        let converted = convert_file(&source, 2);
+        let unchanged = fs::read(&source).unwrap();
+        let still_readonly = fs::metadata(&source).unwrap().permissions().readonly();
+        permissions.set_readonly(false);
+        fs::set_permissions(&source, permissions).unwrap();
+        assert!(converted.unwrap().is_file());
+        assert_eq!(unchanged, original);
+        assert!(still_readonly);
+        fs::remove_dir_all(dir).unwrap();
     }
     #[test]
     fn publication_never_overwrites_a_target_created_before_commit() {
@@ -346,11 +342,13 @@ mod tests {
         assert_eq!(menu_formats(Path::new("photo.png")), [0, 6, 2, 3, 4, 5]);
     }
     #[test]
-    fn converts_all_formats_and_removes_source() {
+    fn converts_all_formats_and_preserves_source() {
         for index in [0, 2, 3, 4, 6] {
             let (dir, source) = fixture();
-            let dest = replace(&source, index).unwrap_or_else(|e| panic!("format {index}: {e}"));
-            assert!(!source.exists());
+            let original = fs::read(&source).unwrap();
+            let dest =
+                convert_file(&source, index).unwrap_or_else(|e| panic!("format {index}: {e}"));
+            assert_eq!(fs::read(&source).unwrap(), original);
             assert_eq!(image::image_dimensions(&dest).unwrap(), (12, 8));
             if index == 6 {
                 assert_eq!(
@@ -372,12 +370,15 @@ mod tests {
             fs::remove_dir_all(dir).unwrap();
         }
         let (dir, source) = fixture();
-        let webp = replace(&source, 2).unwrap();
-        assert!(replace(&webp, 1).unwrap().exists());
+        let webp = convert_file(&source, 2).unwrap();
+        assert!(convert_file(&webp, 1).is_err());
+        assert!(source.exists());
+        assert!(webp.exists());
+        assert!(convert_file(&webp, 0).unwrap().exists());
         fs::remove_dir_all(dir).unwrap();
     }
     #[test]
-    fn pdf_export_replaces_source_and_checks_collisions() {
+    fn pdf_export_preserves_source_and_checks_collisions() {
         let (dir, source) = fixture();
         let mut image = image::RgbaImage::new(320, 200);
         for (x, y, pixel) in image.enumerate_pixels_mut() {
@@ -389,9 +390,10 @@ mod tests {
             };
         }
         image.save(&source).unwrap();
-        let dest = replace(&source, 5).unwrap();
+        let original = fs::read(&source).unwrap();
+        let dest = convert_file(&source, 5).unwrap();
         let bytes = fs::read(&dest).unwrap();
-        assert!(!source.exists());
+        assert_eq!(fs::read(&source).unwrap(), original);
         assert!(bytes.starts_with(b"%PDF-1.4"));
         assert!(bytes.ends_with(b"%%EOF\n"));
         crate::pdf::verify_file(&dest, &bytes).unwrap();
@@ -401,7 +403,7 @@ mod tests {
         fs::write(&dest, b"truncated").unwrap();
         assert!(crate::pdf::verify_file(&dest, &bytes).is_err());
         image.save(&source).unwrap();
-        assert!(replace(&source, 5).is_err());
+        assert!(convert_file(&source, 5).is_err());
         assert!(source.exists());
         assert_eq!(fs::read(&dest).unwrap(), b"truncated");
         fs::remove_dir_all(dir).unwrap();
@@ -427,7 +429,7 @@ mod tests {
             .unwrap();
         drop(encoder);
         let before = fs::read(&gif).unwrap();
-        assert!(replace(&gif, 5).unwrap_err().contains("Animated"));
+        assert!(convert_file(&gif, 5).unwrap_err().contains("Animated"));
         assert_eq!(fs::read(&gif).unwrap(), before);
         assert!(!gif.with_extension("pdf").exists());
         fs::remove_dir_all(dir).unwrap();
@@ -437,8 +439,8 @@ mod tests {
         let (dir, source) = fixture();
         let before = fs::read(&source).unwrap();
         fs::write(source.with_extension("webp"), b"existing").unwrap();
-        assert!(replace(&source, 2).is_err());
-        assert!(replace(&source, 1).is_err());
+        assert!(convert_file(&source, 2).is_err());
+        assert!(convert_file(&source, 1).is_err());
         assert_eq!(fs::read(&source).unwrap(), before);
         assert_eq!(
             fs::read(source.with_extension("webp")).unwrap(),
@@ -450,7 +452,7 @@ mod tests {
     fn corrupt_source_is_never_deleted() {
         let (dir, source) = fixture();
         fs::write(&source, b"broken image").unwrap();
-        assert!(replace(&source, 0).is_err());
+        assert!(convert_file(&source, 0).is_err());
         assert_eq!(fs::read(&source).unwrap(), b"broken image");
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
         fs::remove_dir_all(dir).unwrap();

@@ -196,7 +196,7 @@ impl Drop for Workspace {
     }
 }
 
-pub fn replace(source: &Path, index: usize) -> Result<PathBuf, String> {
+pub fn convert_file(source: &Path, index: usize) -> Result<PathBuf, String> {
     if kind(source).is_none() || !(7..18).contains(&index) {
         return Err("This format is not an audio or video format.".into());
     }
@@ -217,8 +217,7 @@ pub fn replace(source: &Path, index: usize) -> Result<PathBuf, String> {
         ));
     }
     let work = Workspace::new(&source, ext)?;
-    // FFmpeg's Windows reader does not share DELETE access. Decode a private copy
-    // while keeping the original locked through verification and publication.
+    // Decode a private copy while keeping the original locked through publication.
     let mut copy = OpenOptions::new()
         .create_new(true)
         .write(true)
@@ -361,7 +360,7 @@ pub fn replace(source: &Path, index: usize) -> Result<PathBuf, String> {
             return Err("Video dimension verification failed. The original was kept.".into());
         }
     }
-    // Decode every selected stream to EOF before deleting the locked original.
+    // Decode every selected stream to EOF before publishing the converted file.
     let mut check = command("ffmpeg")?;
     check
         .args(["-nostdin", "-nostats", "-xerror", "-threads", "2", "-i"])
@@ -438,26 +437,34 @@ mod tests {
         assert_eq!(kind(Path::new("photo.png")), None);
     }
     #[test]
-    fn audio_formats_and_mp3_to_mp4_replace_only_after_verification() {
+    fn audio_formats_and_mp3_to_mp4_preserve_sources() {
         for ext in ["mp3", "flac", "m4a", "ogg", "opus"] {
             let (dir, source) = fixture("wav");
             fs::write(&source, include_bytes!("../assets/paid.wav")).unwrap();
-            let dest = replace(&source, format(ext)).unwrap_or_else(|e| panic!("{ext}: {e}"));
-            assert!(!source.exists());
+            let dest = convert_file(&source, format(ext)).unwrap_or_else(|e| panic!("{ext}: {e}"));
+            assert!(source.exists());
             assert_eq!(probe(&dest).unwrap().audio.len(), 1);
-            assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+            assert_eq!(fs::read_dir(&dir).unwrap().count(), 2);
+            assert_eq!(
+                fs::read(&source).unwrap(),
+                include_bytes!("../assets/paid.wav")
+            );
             if ext == "mp3" {
                 let duration = probe(&dest).unwrap().duration;
-                let video = replace(&dest, format("mp4")).unwrap();
+                let video = convert_file(&dest, format("mp4")).unwrap();
                 let info = probe(&video).unwrap();
                 assert_eq!(info.videos, [(1280, 720)]);
                 assert_eq!(info.audio.len(), 1);
                 assert!((info.duration - duration).abs() <= 0.5);
-                assert!(!dest.exists());
-                let wav = replace(&video, format("wav")).unwrap();
+                assert!(dest.exists());
+                assert!(convert_file(&video, format("wav")).is_err());
+                let renamed = dir.join("roundtrip.mp4");
+                fs::rename(&video, &renamed).unwrap();
+                let video = renamed;
+                let wav = convert_file(&video, format("wav")).unwrap();
                 assert_eq!(probe(&wav).unwrap().audio.len(), 1);
                 assert!((probe(&wav).unwrap().duration - 0.6).abs() < 0.1);
-                assert!(!video.exists());
+                assert!(video.exists());
             }
             fs::remove_dir_all(dir).unwrap();
         }
@@ -467,13 +474,17 @@ mod tests {
         for ext in ["mkv", "webm", "mov", "avi", "mp3", "wav"] {
             let (dir, source) = fixture("mp4");
             video_fixture(&source, true);
-            let dest = replace(&source, format(ext)).unwrap_or_else(|e| panic!("{ext}: {e}"));
-            assert!(!source.exists());
+            let original = fs::read(&source).unwrap();
+            let dest = convert_file(&source, format(ext)).unwrap_or_else(|e| panic!("{ext}: {e}"));
+            assert_eq!(fs::read(&source).unwrap(), original);
             let info = probe(&dest).unwrap();
             assert_eq!(info.videos.len(), usize::from(video_output(ext)));
             assert_eq!(info.audio.len(), 1);
             if ext == "mkv" {
-                assert!(replace(&dest, format("mp4")).unwrap().is_file());
+                assert!(convert_file(&dest, format("mp4")).is_err());
+                let renamed = dir.join("roundtrip.mkv");
+                fs::rename(&dest, &renamed).unwrap();
+                assert!(convert_file(&renamed, format("mp4")).unwrap().is_file());
             }
             fs::remove_dir_all(dir).unwrap();
         }
@@ -482,20 +493,20 @@ mod tests {
     fn corrupt_inputs_collisions_and_silent_audio_preserve_sources() {
         let (dir, source) = fixture("mp3");
         fs::write(&source, b"not an audio file").unwrap();
-        assert!(replace(&source, format("wav")).is_err());
+        assert!(convert_file(&source, format("wav")).is_err());
         assert_eq!(fs::read(&source).unwrap(), b"not an audio file");
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
         fs::write(source.with_extension("mp4"), b"existing destination").unwrap();
-        assert!(replace(&source, format("mp4")).is_err());
+        assert!(convert_file(&source, format("mp4")).is_err());
         assert_eq!(
             fs::read(source.with_extension("mp4")).unwrap(),
             b"existing destination"
         );
-        assert!(replace(&source, format("mp3")).is_err());
+        assert!(convert_file(&source, format("mp3")).is_err());
         fs::remove_dir_all(dir).unwrap();
         let (dir, source) = fixture("mp4");
         video_fixture(&source, false);
-        assert!(replace(&source, format("mp3"))
+        assert!(convert_file(&source, format("mp3"))
             .unwrap_err()
             .contains("no audio track"));
         assert!(source.is_file());
@@ -516,7 +527,7 @@ mod tests {
             .arg(&multiple);
         run(cmd, "Multitrack fixture").unwrap();
         let before = fs::read(&multiple).unwrap();
-        assert!(replace(&multiple, format("mp4"))
+        assert!(convert_file(&multiple, format("mp4"))
             .unwrap_err()
             .contains("Multiple tracks"));
         assert_eq!(fs::read(&multiple).unwrap(), before);

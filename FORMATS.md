@@ -31,6 +31,6 @@ Text PDF output is searchable A4 with margins, line wrapping and pagination. The
 Limits: 64 MiB input, 2 MiB extracted text, 2000 PDF pages and bounded decompressed XML/streams. Output is parsed again and all non-whitespace characters checked before publication; whitespace and line breaks can change. A forced shutdown can leave a .petal-text-*.tmp file.
 
 ## Replacement and integration
-The source is removed permanently only after verified output is synced and published. Existing destinations are never overwritten, including files created during conversion. If source deletion fails, both files are retained. Read-only files, links and online-only cloud placeholders are refused.
+The original file is always retained unchanged. Verified output is synced and saved in the same folder with the new extension. Existing destinations are never overwritten, including files created during conversion. Read-only sources can be converted. Links and online-only cloud placeholders are refused.
 
 File Explorer and the Windows desktop are supported, one file at a time. Third-party file managers and file-picker dialogs are not intercepted. Shift/Ctrl/Alt + right-click keeps the Windows menu. No automatic startup is installed. Closing the UI does not cancel conversion.

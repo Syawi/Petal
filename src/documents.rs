@@ -524,7 +524,7 @@ impl Drop for Temporary {
         let _ = fs::remove_file(&self.0);
     }
 }
-pub fn replace(source: &Path, index: usize) -> Result<PathBuf> {
+pub fn convert_file(source: &Path, index: usize) -> Result<PathBuf> {
     let ext = crate::convert::FORMATS
         .get(index)
         .ok_or("Unknown format")?
@@ -631,7 +631,7 @@ mod tests {
         assert_eq!(utf(&[0xff, 0xfe, 0xe9, 0]).unwrap(), "\u{00e9}");
     }
     #[test]
-    fn replacement_and_collision_preserve_original() {
+    fn conversion_and_collision_preserve_original() {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("target/test-data")
             .join(format!(
@@ -648,23 +648,22 @@ mod tests {
                 .position(|f| f.2 == ext)
                 .unwrap()
         };
-        let pdf = replace(&source, id("pdf")).unwrap();
-        assert!(!source.exists());
-        let docx = replace(&pdf, id("docx")).unwrap();
-        assert!(!pdf.exists());
+        let pdf = convert_file(&source, id("pdf")).unwrap();
+        assert_eq!(fs::read_to_string(&source).unwrap(), SAMPLE);
+        let docx = convert_file(&pdf, id("docx")).unwrap();
+        assert!(pdf.exists());
         assert_eq!(
             signature(&read(&fs::read(&docx).unwrap(), "docx").unwrap()),
             signature(SAMPLE)
         );
         let collision = docx.with_extension("txt");
-        fs::write(&collision, b"existing").unwrap();
-        assert!(replace(&docx, id("txt")).is_err());
+        assert!(convert_file(&docx, id("txt")).is_err());
         assert!(docx.exists());
-        assert_eq!(fs::read(collision).unwrap(), b"existing");
+        assert_eq!(fs::read_to_string(collision).unwrap(), SAMPLE);
         let bad = dir.join("bad.html");
         let badbytes = b"<p>text</p><img src='image.png'>";
         fs::write(&bad, badbytes).unwrap();
-        assert!(replace(&bad, id("txt")).is_err());
+        assert!(convert_file(&bad, id("txt")).is_err());
         assert_eq!(fs::read(bad).unwrap(), badbytes);
     }
 }
