@@ -51,12 +51,56 @@ fn tool(name: &str) -> Result<PathBuf, String> {
         .ok_or("Petal folder not found")?
         .to_path_buf();
     let path = root.join("ffmpeg").join(format!("{name}.exe"));
-    if !path.is_file() {
-        return Err(
-            "Audio/video engine missing. Run Install-MediaEngine.ps1 in the Petal folder.".into(),
-        );
+    if path.is_file() {
+        return Ok(path);
     }
-    Ok(path)
+    #[cfg(test)]
+    {
+        Err("Media test tools are missing. Run Install-MediaEngine.ps1.".into())
+    }
+    #[cfg(not(test))]
+    {
+        let directory = crate::runtime::data_directory()?.join("media/9.0.2");
+        install_engine(&directory)?;
+        let path = directory.join(format!("{name}.exe"));
+        if path.is_file() {
+            Ok(path)
+        } else {
+            Err("Media engine setup did not produce the required tools. Check your connection and try again.".into())
+        }
+    }
+}
+#[cfg(not(test))]
+fn install_engine(directory: &Path) -> Result<(), String> {
+    static INSTALL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _lock = INSTALL
+        .lock()
+        .map_err(|_| "Media setup was interrupted. Restart Petal and try again.")?;
+    if directory.join("ffmpeg.exe").is_file() && directory.join("ffprobe.exe").is_file() {
+        return Ok(());
+    }
+    let destination = directory.to_string_lossy().replace('\'', "''");
+    let script = format!(
+        "$env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules'); & {{\n{}\n}} -Destination '{}'",
+        include_str!("../Install-MediaEngine.ps1"),
+        destination
+    );
+    let windows = std::env::var_os("SystemRoot").ok_or("SystemRoot is unavailable")?;
+    let mut installer =
+        Command::new(PathBuf::from(windows).join("System32/WindowsPowerShell/v1.0/powershell.exe"));
+    installer
+        .creation_flags(0x08000000)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+    run(installer, "First-use audio/video engine download (109 MB)")?;
+    std::fs::write(
+        directory.join("SOURCES.md"),
+        include_str!("../ffmpeg/SOURCES.md"),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 fn command(name: &str) -> Result<Command, String> {
     let mut cmd = Command::new(tool(name)?);

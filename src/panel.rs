@@ -21,7 +21,9 @@ const SWITCH_MS: f32 = 180.0;
 const TIMER: usize = 1;
 const NAMES: [&str; 3] = [settings::GLASS, settings::MOTION, settings::SOUND];
 /// WM_COMMAND ids the main window already handles (save + apply) for each row.
-const COMMANDS: [usize; 3] = [4, 5, 3];
+const COMMANDS: [usize; 3] = [crate::GLASS_COMMAND, crate::MOTION_COMMAND, 3];
+/// Opens the full settings window (shortcut, startup, sound file).
+const FULL_SETTINGS: usize = 4;
 
 struct Window {
     hwnd: HWND,
@@ -109,11 +111,15 @@ impl Window {
                 self.paint();
             }
             3 => self.close(),
+            4 => {
+                self.close();
+                PostMessageW(self.owner, WM_COMMAND, FULL_SETTINGS, 0);
+            }
             _ => {}
         }
     }
 }
-/// Opens (or focuses) the panel in the corner of the screen next to the tray.
+/// Opens (or focuses) the quick panel in the corner of the screen next to the tray.
 pub unsafe fn open(owner: HWND, accent: u32, dark: bool) {
     if PANEL.is_null() {
         let Some(hwnd) = create() else { return };
@@ -172,7 +178,7 @@ pub unsafe fn open(owner: HWND, accent: u32, dark: bool) {
 }
 unsafe fn create() -> Option<HWND> {
     let instance = GetModuleHandleW(null());
-    let class = wide("Petal.Settings");
+    let class = wide("Petal.QuickSettings");
     let mut wc: WNDCLASSEXW = zeroed();
     wc.cbSize = size_of::<WNDCLASSEXW>() as u32;
     wc.lpfnWndProc = Some(proc);
@@ -258,11 +264,11 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             match wp as u16 {
                 VK_ESCAPE => p.close(),
                 VK_DOWN | VK_TAB => {
-                    p.hover = (p.hover + 1).rem_euclid(4);
+                    p.hover = (p.hover + 1).rem_euclid(5);
                     p.paint();
                 }
                 VK_UP => {
-                    p.hover = (p.hover - 1).rem_euclid(4);
+                    p.hover = (p.hover - 1).rem_euclid(5);
                     p.paint();
                 }
                 VK_SPACE | VK_RETURN => p.act(p.hover),

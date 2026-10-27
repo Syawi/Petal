@@ -6,7 +6,9 @@ mod notifications;
 mod panel;
 mod pdf;
 mod render;
+mod runtime;
 mod settings;
+mod settings_ui;
 mod shell;
 mod sound;
 mod text_pdf;
@@ -34,6 +36,11 @@ use windows_sys::Win32::{
 const HIT: u32 = WM_APP + 1;
 const TRAY: u32 = WM_APP + 2;
 const DISMISS: u32 = WM_APP + 3;
+const KEY_HIT: u32 = WM_APP + 4;
+pub const SETTINGS_CHANGED: u32 = WM_APP + 5;
+/// Tray-menu style WM_COMMAND ids the glass quick panel sends; 3 = sound and 4 = full settings already exist.
+pub const GLASS_COMMAND: usize = 7;
+pub const MOTION_COMMAND: usize = 8;
 const WIDTH: i32 = 400;
 const HEIGHT: i32 = 400;
 const MENU_SCALE: f64 = 0.75;
@@ -41,7 +48,8 @@ const FRAME_TIMER: usize = 2;
 const MIN_WORKING_MS: u128 = 450;
 const SUCCESS_MS: u128 = 1200;
 static WINDOW: AtomicUsize = AtomicUsize::new(0);
-static mut DOWN: Option<(POINT, usize)> = None;
+static mut DOWN: Option<(POINT, usize, u16)> = None;
+static mut HELD_KEY: Option<u16> = None;
 static mut STATE: *mut State = null_mut();
 enum Reply {
     Selection(Option<PathBuf>),
@@ -55,6 +63,8 @@ struct State {
     glass_enabled: bool,
     motion_enabled: bool,
     glass: Option<Vec<u32>>,
+    binding: settings::Binding,
+    keyboard_activation: bool,
     notifications: Option<notifications::Notifications>,
     hover_from: [f32; 7],
     hover_started: Option<Instant>,
@@ -84,10 +94,12 @@ impl State {
             accent: render::system_accent(),
             // Petal's own Animations setting wins over the system-wide toggle, which many PCs turn off for speed.
             motion: settings::enabled(settings::MOTION),
-            sound_enabled: settings::enabled(settings::SOUND),
+            sound_enabled: settings::sound_enabled(),
             glass_enabled: settings::enabled(settings::GLASS),
             motion_enabled: settings::enabled(settings::MOTION),
             glass: None,
+            binding: settings::binding(),
+            keyboard_activation: false,
             notifications: None,
             hover_from: [0.0; 7],
             hover_started: None,
@@ -199,8 +211,10 @@ unsafe fn message_loop(hwnd: HWND) {
             if msg.message == WM_QUIT {
                 return;
             }
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+            if !settings_ui::dialog_message(&msg) {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
         }
         clock.set_active((*STATE).animating());
         let count = u32::from(clock.armed && !clock.timer.is_null());
@@ -354,43 +368,60 @@ unsafe fn outside_wheel(window: HWND, point: POINT) -> bool {
         local.y as f64 / (*STATE).scale,
     ) < 0
 }
-unsafe extern "system" fn mouse_hook(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
-    if code >= 0 {
-        let e = &*(lp as *const MSLLHOOKSTRUCT);
-        if e.dwExtraInfo != 0x50455441 {
-            let window = WINDOW.load(Ordering::Relaxed) as HWND;
-            if mouse_button_down(wp as u32) && !STATE.is_null() && outside_wheel(window, e.pt) {
-                PostMessageW(window, DISMISS, 0, 0);
+fn mouse_key(message: u32, data: u32) -> Option<(u16, bool)> {
+    match message {
+        WM_LBUTTONDOWN => Some((VK_LBUTTON, true)),
+        WM_LBUTTONUP => Some((VK_LBUTTON, false)),
+        WM_RBUTTONDOWN => Some((VK_RBUTTON, true)),
+        WM_RBUTTONUP => Some((VK_RBUTTON, false)),
+        WM_MBUTTONDOWN => Some((VK_MBUTTON, true)),
+        WM_MBUTTONUP => Some((VK_MBUTTON, false)),
+        WM_XBUTTONDOWN | WM_XBUTTONUP => Some((
+            if data >> 16 == 1 {
+                VK_XBUTTON1
+            } else {
+                VK_XBUTTON2
+            },
+            message == WM_XBUTTONDOWN,
+        )),
+        _ => None,
+    }
+}
+unsafe extern "system" fn keyboard_hook(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    if code >= 0 && !STATE.is_null() {
+        let event = &*(lp as *const KBDLLHOOKSTRUCT);
+        if event.dwExtraInfo != 0x50455441 {
+            let key = event.vkCode as u16;
+            if matches!(wp as u32, WM_KEYUP | WM_SYSKEYUP) && HELD_KEY == Some(key) {
+                HELD_KEY = None;
+                return 1;
             }
-            if wp as u32 == WM_RBUTTONDOWN {
-                let modifier = GetAsyncKeyState(VK_SHIFT as i32) < 0
-                    || GetAsyncKeyState(VK_CONTROL as i32) < 0
-                    || GetAsyncKeyState(VK_MENU as i32) < 0;
-                DOWN = if modifier {
-                    None
-                } else {
-                    explorer_at(e.pt).map(|h| (e.pt, h as usize))
-                };
-                if matches!(DOWN, Some(_)) {
+            if matches!(wp as u32, WM_KEYDOWN | WM_SYSKEYDOWN) {
+                if settings_ui::record(key, settings::modifiers()) {
                     return 1;
                 }
-            } else if wp as u32 == WM_MOUSEMOVE {
-                if let Some((p, _)) = DOWN {
-                    if (p.x - e.pt.x).abs() >= 5 || (p.y - e.pt.y).abs() >= 5 {
-                        DOWN = None;
-                        resume_drag(p, e.pt);
-                    }
+                if HELD_KEY == Some(key) {
+                    return 1;
                 }
-            } else if wp as u32 == WM_RBUTTONUP {
-                let down = DOWN;
-                DOWN = None;
-                if let Some((p, root)) = down {
-                    if (p.x - e.pt.x).abs() < 5
-                        && (p.y - e.pt.y).abs() < 5
-                        && explorer_at(e.pt).is_some_and(|h| h as usize == root)
+                if !(*STATE).binding.mouse()
+                    && (*STATE).binding.matches(key, settings::modifiers())
+                    && !(*STATE).visible
+                    && !(*STATE).busy
+                    && !(*STATE).resolving
+                {
+                    let mut point = zeroed();
+                    GetCursorPos(&mut point);
+                    if let Some(root) =
+                        explorer_at(point).filter(|root| source_is_foreground(*root))
                     {
-                        let packed = p.x as u32 as u64 | ((p.y as u32 as u64) << 32);
-                        PostMessageW(window, HIT, root, packed as isize);
+                        HELD_KEY = Some(key);
+                        let packed = point.x as u32 as u64 | ((point.y as u32 as u64) << 32);
+                        PostMessageW(
+                            WINDOW.load(Ordering::Relaxed) as HWND,
+                            KEY_HIT,
+                            root as usize,
+                            packed as isize,
+                        );
                         return 1;
                     }
                 }
@@ -399,8 +430,57 @@ unsafe extern "system" fn mouse_hook(code: i32, wp: WPARAM, lp: LPARAM) -> LRESU
     }
     CallNextHookEx(null_mut(), code, wp, lp)
 }
-// Replay the beginning of a right-drag after the movement threshold is crossed.
-unsafe fn resume_drag(start: POINT, current: POINT) {
+unsafe extern "system" fn mouse_hook(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    if code >= 0 && !STATE.is_null() {
+        let event = &*(lp as *const MSLLHOOKSTRUCT);
+        if event.dwExtraInfo != 0x50455441 {
+            let window = WINDOW.load(Ordering::Relaxed) as HWND;
+            let button = mouse_key(wp as u32, event.mouseData);
+            if let Some((key, true)) = button {
+                if settings_ui::record(key, settings::modifiers()) {
+                    return 1;
+                }
+            }
+            if mouse_button_down(wp as u32) && outside_wheel(window, event.pt) {
+                PostMessageW(window, DISMISS, 0, 0);
+            }
+            if let Some((key, true)) = button {
+                DOWN = if (*STATE).binding.matches(key, settings::modifiers()) {
+                    explorer_at(event.pt).map(|root| (event.pt, root as usize, key))
+                } else {
+                    None
+                };
+                if matches!(DOWN, Some(_)) {
+                    return 1;
+                }
+            } else if wp as u32 == WM_MOUSEMOVE {
+                if let Some((start, _, key)) = DOWN {
+                    if (start.x - event.pt.x).abs() >= 5 || (start.y - event.pt.y).abs() >= 5 {
+                        DOWN = None;
+                        resume_drag(start, event.pt, key);
+                    }
+                }
+            } else if let Some((key, false)) = button {
+                if let Some((start, root, held)) = DOWN {
+                    if held == key {
+                        DOWN = None;
+                        if (start.x - event.pt.x).abs() < 5
+                            && (start.y - event.pt.y).abs() < 5
+                            && explorer_at(event.pt).is_some_and(|h| h as usize == root)
+                        {
+                            let packed = start.x as u32 as u64 | ((start.y as u32 as u64) << 32);
+                            PostMessageW(window, HIT, root, packed as isize);
+                            return 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    CallNextHookEx(null_mut(), code, wp, lp)
+}
+// Replay the intercepted mouse-down after the movement threshold is crossed.
+unsafe fn resume_drag(start: POINT, current: POINT, key: u16) {
     let left = GetSystemMetrics(SM_XVIRTUALSCREEN);
     let top = GetSystemMetrics(SM_YVIRTUALSCREEN);
     let width = GetSystemMetrics(SM_CXVIRTUALSCREEN).max(2) - 1;
@@ -416,7 +496,19 @@ unsafe fn resume_drag(start: POINT, current: POINT) {
         inputs[index].Anonymous.mi.dwFlags =
             MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
     }
-    inputs[1].Anonymous.mi.dwFlags = MOUSEEVENTF_RIGHTDOWN;
+    inputs[1].Anonymous.mi.dwFlags = match key {
+        VK_LBUTTON => MOUSEEVENTF_LEFTDOWN,
+        VK_MBUTTON => MOUSEEVENTF_MIDDLEDOWN,
+        VK_XBUTTON1 | VK_XBUTTON2 => MOUSEEVENTF_XDOWN,
+        _ => MOUSEEVENTF_RIGHTDOWN,
+    };
+    inputs[1].Anonymous.mi.mouseData = if key == VK_XBUTTON1 {
+        1
+    } else if key == VK_XBUTTON2 {
+        2
+    } else {
+        0
+    };
     SendInput(3, inputs.as_ptr(), size_of::<INPUT>() as i32);
 }
 unsafe fn hide(hwnd: HWND) {
@@ -612,7 +704,7 @@ unsafe fn act(hwnd: HWND, index: i32) {
     });
     SetTimer(hwnd, 1, 30, None);
 }
-unsafe fn tray_menu(busy: bool) -> HMENU {
+unsafe fn tray_menu(sound_enabled: bool, busy: bool) -> HMENU {
     let menu = CreatePopupMenu();
     AppendMenuW(
         menu,
@@ -620,7 +712,13 @@ unsafe fn tray_menu(busy: bool) -> HMENU {
         1,
         wide("Petal · File Explorer and desktop").as_ptr(),
     );
-    AppendMenuW(menu, MF_STRING, 6, wide("Settings…").as_ptr());
+    AppendMenuW(
+        menu,
+        MF_STRING | if sound_enabled { 0 } else { MF_CHECKED },
+        3,
+        wide("Mute sound").as_ptr(),
+    );
+    AppendMenuW(menu, MF_STRING, 4, wide("Settings…").as_ptr());
     AppendMenuW(menu, MF_SEPARATOR, 0, null());
     AppendMenuW(
         menu,
@@ -635,7 +733,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         return DefWindowProcW(hwnd, msg, wp, lp);
     }
     match msg {
-        HIT => {
+        HIT | KEY_HIT => {
+            (*STATE).keyboard_activation = msg == KEY_HIT;
             let point = POINT {
                 x: lp as u32 as i32,
                 y: ((lp as u64) >> 32) as u32 as i32,
@@ -683,6 +782,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                         (*STATE).source = source;
                         if (*STATE).source.is_some() {
                             show(hwnd);
+                        } else if (*STATE).keyboard_activation {
+                            hide(hwnd);
                         } else {
                             replay(hwnd);
                         }
@@ -823,7 +924,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             0
         }
         TRAY if lp as u32 == WM_RBUTTONUP => {
-            let menu = tray_menu((*STATE).busy);
+            let menu = tray_menu((*STATE).sound_enabled, (*STATE).busy);
             let mut p = zeroed();
             GetCursorPos(&mut p);
             SetForegroundWindow(hwnd);
@@ -837,8 +938,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 null(),
             );
             DestroyMenu(menu);
-            if cmd == 6 {
-                panel::open(hwnd, (*STATE).accent, (*STATE).dark);
+            if cmd == 3 || cmd == 4 {
+                SendMessageW(hwnd, WM_COMMAND, cmd as usize, 0);
             }
             if cmd == 2 && !(*STATE).busy {
                 PostQuitMessage(0);
@@ -852,17 +953,36 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             }
             0
         }
-        WM_COMMAND if (3..=5).contains(&wp) => {
-            let (name, flag) = match wp {
-                3 => (settings::SOUND, &mut (*STATE).sound_enabled),
-                4 => (settings::GLASS, &mut (*STATE).glass_enabled),
-                _ => (settings::MOTION, &mut (*STATE).motion_enabled),
+        SETTINGS_CHANGED => {
+            (*STATE).sound_enabled = settings::sound_enabled();
+            (*STATE).binding = settings::binding();
+            (*STATE).glass_enabled = settings::enabled(settings::GLASS);
+            (*STATE).motion_enabled = settings::enabled(settings::MOTION);
+            0
+        }
+        WM_COMMAND if wp == 4 => {
+            hide(hwnd);
+            settings_ui::show(hwnd);
+            0
+        }
+        WM_COMMAND if wp == GLASS_COMMAND || wp == MOTION_COMMAND => {
+            let (name, flag) = if wp == GLASS_COMMAND {
+                (settings::GLASS, &mut (*STATE).glass_enabled)
+            } else {
+                (settings::MOTION, &mut (*STATE).motion_enabled)
             };
-            let enabled = !*flag;
-            match settings::save(name, enabled) {
+            match settings::save(name, !*flag) {
+                Ok(()) => *flag = !*flag,
+                Err(error) => notify(hwnd, "Settings could not be saved", &error, true),
+            }
+            0
+        }
+        WM_COMMAND if wp == 3 => {
+            let enabled = !(*STATE).sound_enabled;
+            match settings::save_sound(enabled) {
                 Ok(()) => {
-                    *flag = enabled;
-                    if wp == 3 && !enabled {
+                    (*STATE).sound_enabled = enabled;
+                    if !enabled {
                         sound::stop();
                     }
                 }
@@ -897,19 +1017,20 @@ fn main() {
             let result = index
                 .ok_or_else(|| "Unknown format".into())
                 .and_then(|i| convert::convert_file(&PathBuf::from(&args[2]), i));
-            if let Err(e) = result {
-                MessageBoxW(
-                    null_mut(),
-                    wide(&e).as_ptr(),
-                    wide("Petal").as_ptr(),
-                    MB_OK | MB_ICONERROR,
-                );
+            if let Err(error) = result {
+                eprintln!("{error}");
                 std::process::exit(1);
             }
             return;
         }
         let mutex = CreateMutexW(null(), 0, wide("Local\\Petal.ImageConverter.0.1").as_ptr());
         if GetLastError() == ERROR_ALREADY_EXISTS {
+            if args.iter().any(|a| a == "--settings") {
+                let existing = FindWindowW(wide("Petal.Radial").as_ptr(), null());
+                if !existing.is_null() {
+                    PostMessageW(existing, WM_COMMAND, 4, 0);
+                }
+            }
             CloseHandle(mutex);
             return;
         }
@@ -953,6 +1074,10 @@ fn main() {
             null(),
         );
         if window.is_null() {
+            eprintln!(
+                "Petal window could not be created: {}",
+                std::io::Error::last_os_error()
+            );
             return;
         }
         // Consume STARTUPINFO's initial hidden state before the first radial popup.
@@ -961,7 +1086,8 @@ fn main() {
         (*STATE).notifications = notifications;
         WINDOW.store(window as usize, Ordering::Relaxed);
         let hook = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_hook), instance, 0);
-        if hook.is_null() {
+        let key_hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_hook), instance, 0);
+        if hook.is_null() || key_hook.is_null() {
             MessageBoxW(
                 window,
                 wide("Could not enable right-click integration.").as_ptr(),
@@ -981,12 +1107,19 @@ fn main() {
         for (a, b) in tray
             .szTip
             .iter_mut()
-            .zip(wide("Petal — images, media, documents · Shift for Windows"))
+            .zip(wide("Petal — File converter · Settings in tray"))
         {
             *a = b;
         }
         Shell_NotifyIconW(NIM_ADD, &tray);
-        notify(window,"Petal","Active in File Explorer and on the desktop. Right-click an image, media file or text document to convert it. Shift + right-click opens the Windows menu.",false);
+        if !(args.len() == 3 && args[1] == "--preview") {
+            if let Err(error) = settings::initialize_startup() {
+                notify(window, "Startup could not be enabled", &error, true);
+            }
+        }
+        if args.iter().any(|a| a == "--settings") {
+            settings_ui::show(window);
+        }
         if args.len() == 3 && args[1] == "--preview" {
             (*STATE).source = Some(PathBuf::from(&args[2]));
             GetCursorPos(&mut (*STATE).point);
@@ -994,6 +1127,8 @@ fn main() {
         }
         message_loop(window);
         UnhookWindowsHookEx(hook);
+        UnhookWindowsHookEx(key_hook);
+        settings_ui::close();
         Shell_NotifyIconW(NIM_DELETE, &tray);
         DestroyWindow(window);
         drop(Box::from_raw(STATE));
@@ -1031,16 +1166,20 @@ mod tests {
             );
             DeleteObject(balloon.hbmColor);
             DeleteObject(balloon.hbmMask);
-            for busy in [false, true] {
-                let menu = tray_menu(busy);
+            for enabled in [false, true] {
+                let menu = tray_menu(enabled, true);
                 assert!(!menu.is_null());
                 let mut label = [0u16; 64];
-                GetMenuStringW(menu, 6, label.as_mut_ptr(), 64, MF_BYCOMMAND);
-                assert!(String::from_utf16_lossy(&label).starts_with("Settings"));
+                GetMenuStringW(menu, 3, label.as_mut_ptr(), 64, MF_BYCOMMAND);
+                assert!(String::from_utf16_lossy(&label).starts_with("Mute sound"));
                 assert_eq!(
-                    GetMenuState(menu, 2, MF_BYCOMMAND) & MF_DISABLED != 0,
-                    busy
+                    GetMenuState(menu, 3, MF_BYCOMMAND) & MF_CHECKED,
+                    if enabled { 0 } else { MF_CHECKED }
                 );
+                assert_ne!(GetMenuState(menu, 2, MF_BYCOMMAND) & MF_DISABLED, 0);
+                assert_eq!(GetMenuState(menu, 4, MF_BYCOMMAND) & MF_DISABLED, 0);
+                GetMenuStringW(menu, 4, label.as_mut_ptr(), 64, MF_BYCOMMAND);
+                assert!(String::from_utf16_lossy(&label).starts_with("Settings"));
                 DestroyMenu(menu);
             }
             let instance = GetModuleHandleW(null());

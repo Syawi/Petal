@@ -41,21 +41,13 @@ Petal 是一款原生 Windows 11 工具，将图片、音频、视频和文本�
 
 **系统要求：Windows 11 x64。**
 
-### 下载 v1.0
+### 下载 v1.1
 
-从 [v1.0 发布页面](https://github.com/Syawi/Petal/releases/tag/v1.0)下载 **Petal-v1.0-Windows-x64.zip**。完整解压文件夹并运行 `Petal.exe`。压缩包包含应用、源码和文档。音视频工具需通过 `Install-MediaEngine.ps1` 单独安装。
+下载 **[Petal.exe](https://github.com/Syawi/Petal/releases/download/v1.1/Petal.exe)**，在 Windows 11 x64 上直接运行。无需 ZIP、资源文件夹、管理员权限或 Office。
 
-### 下载构建产物
+应用已内置图标、提示音和许可证，并在 `%LOCALAPPDATA%/Petal` 中保存运行文件。首次转换音频或视频时会自动下载并校验 FFmpeg 引擎（约 109 MB）；此后可离线转换。图片和文档转换无需此下载。
 
-打开一次成功的 [Windows 工作流运行](https://github.com/Syawi/Petal/actions/workflows/windows.yml)，在 artifacts 中下载 **Petal-Windows-x64**。需要登录 GitHub。完整解压文件夹，然后运行 `Petal.exe`。
-
-核心构建支持图片与文档。要启用音视频转换，请在该文件夹中使用 PowerShell 运行一次附带的脚本：
-
-```powershell
-./Install-MediaEngine.ps1
-```
-
-将 `assets/` 和安装后的 `ffmpeg/` 保留在 `Petal.exe` 旁。不需要管理员权限或 Office。应用会为当前用户注册开始菜单快捷方式和通知标识，但不会自动加入开机启动。
+首次运行默认启用登录后自动启动，可在 **Settings** 中关闭。请将可执行文件保存在固定位置。许可证可通过 **Settings → Licenses** 查看。
 
 ### 从源码编译
 
@@ -73,10 +65,10 @@ cd Petal
 ## 使用环形菜单
 
 1. 启动 `Petal.exe`，蓝色图标将出现在系统托盘中，也可能位于隐藏图标区域。
-2. 在文件资源管理器或桌面上右键点击一个受支持的文件。
+2. 按住 **Shift**，在文件资源管理器或桌面上右键点击受支持的文件。
 3. 点击目标格式。Petal 创建并验证副本，然后显示 **Conversion complete**。
 
-中央的 **Windows menu** 打开原生右键菜单。按住 **Shift 再右键点击**可直接使用 Windows 菜单。点击菜单外部或按 **Esc** 可隐藏菜单；正在进行的转换会在后台继续。
+中央的 **Windows menu** 打开原生右键菜单。普通右键点击打开 Windows 菜单；默认使用 **Shift + 右键点击**打开 Petal，快捷键可自定义。点击菜单外部或按 **Esc** 可隐藏菜单；正在进行的转换会在后台继续。
 
 | 快捷键 | 操作 |
 | --- | --- |
@@ -84,6 +76,8 @@ cd Petal
 | `Tab`，然后 `Enter` / `Space` | 选择并启用选项 |
 | `M` | 打开 Windows 右键菜单 |
 | `Esc` | 隐藏菜单或反馈动画 |
+
+通过托盘菜单打开 **Settings…**，可录入任意键盘按键或鼠标按钮及 Ctrl/Shift/Alt/Win 组合、设置登录后启动、选择并试听 WAV 提示音。更改自动保存；**Reset** 恢复 Shift + 右键点击。
 
 托盘菜单中的 **Mute sound** 用于关闭提示音，**Quit Petal** 用于退出。提示音设置会被保存；转换期间无法退出。
 

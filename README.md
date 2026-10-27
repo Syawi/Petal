@@ -27,7 +27,7 @@ Petal is a native Windows 11 utility that puts image, audio, video and text-docu
 - **Images, media and documents.** Convert to WebP, extract a soundtrack, turn text into a searchable PDF, and more.
 - **Windows styling.** Light/dark themes, full accent-color hover, moving petals and crisp Segoe UI Bold labels.
 - **Clear feedback.** A spinner, a completion check, a branded Windows notification and an optional sound.
-- **Native and local.** Rust with Win32/GDI+, no browser runtime, no file uploads and no network during conversion.
+- **Native and local.** Rust with Win32/GDI+, no browser runtime, no file uploads; the audio/video engine requires a one-time download.
 
 > **Your original file stays unchanged.** Petal verifies the converted file and saves it alongside the original, using the same name with the new extension (for example, `photo.jpg` → `photo.webp`). Existing destinations are never overwritten. Metadata and layout in the converted copy may differ.
 
@@ -61,29 +61,25 @@ cd Petal
 
 The build script prepares the pinned FFmpeg/FFprobe tools, runs tests and creates Petal.exe. The one-time media download is SHA-256 verified. GNU builds also need MinGW-w64 binutils; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-### Download v1.0
+### Download v1.1
 
-Download **Petal-v1.0-Windows-x64.zip** from the [v1.0 release](https://github.com/Syawi/Petal/releases/tag/v1.0). Extract the entire folder and run `Petal.exe`. The archive includes the app, source and documentation. Audio/video tools are installed separately with `Install-MediaEngine.ps1`.
+Download **[Petal.exe](https://github.com/Syawi/Petal/releases/download/v1.1/Petal.exe)** and run it directly. Windows 11 x64 is required. No ZIP, adjacent assets folder, administrator access or Office installation is needed.
+
+The logo, completion sound and license notices are embedded. Petal stores its small runtime files under `%LOCALAPPDATA%/Petal`. On the first audio/video conversion, it automatically downloads and verifies the pinned FFmpeg engine (about 109 MB); later conversions work offline. Images and documents work without this download.
+
+Launch at sign-in is enabled on first run and can be disabled in **Settings**. Keep the executable in a stable location for startup. Open **Settings → Licenses** to read the included notices.
 
 ### Download a CI build
 
-Open a successful [Windows workflow run](https://github.com/Syawi/Petal/actions/workflows/windows.yml) and download **Petal-Windows-x64** from its artifacts. Extract the entire folder and run Petal.exe. GitHub requires signing in to download workflow artifacts.
-
-The core artifact supports images and documents. To enable audio/video, run the included script once:
-
-```powershell
-./Install-MediaEngine.ps1
-```
-
-Keep assets/ and, when installed, ffmpeg/ beside Petal.exe. No administrator access or Office installation is required. The app registers a per-user Start-menu shortcut and Windows notification identity. It does not add itself to startup.
+A successful [Windows workflow run](https://github.com/Syawi/Petal/actions/workflows/windows.yml) also provides **Petal-Windows-x64**. Sign in to GitHub, download the artifact and extract `Petal.exe`.
 
 ## Using the wheel
 
 1. Launch Petal.exe; its blue icon appears in the system tray, possibly under hidden icons.
-2. Right-click one supported file in Explorer or on the desktop.
+2. Hold **Shift** and right-click one supported file in Explorer or on the desktop.
 3. Click a format. Petal writes and checks the converted copy, then displays **Conversion complete**.
 
-The center opens the **Windows menu**. **Shift + right-click** bypasses Petal. Click outside or press **Esc** to dismiss the wheel; an active conversion continues in the background.
+The center opens the **Windows menu**. A normal **right-click** opens the Windows menu. The default **Shift + right-click** binding is customizable. Click outside or press **Esc** to dismiss the wheel; an active conversion continues in the background.
 
 | Shortcut | Action |
 | --- | --- |
@@ -92,7 +88,7 @@ The center opens the **Windows menu**. **Shift + right-click** bypasses Petal. C
 | `M` | Open the Windows context menu |
 | `Esc` | Hide the wheel or feedback |
 
-Click the tray icon to toggle **Mute sound** or **Quit Petal**. The sound preference is remembered. Quitting is unavailable during conversion.
+Open **Settings…** from the tray icon to capture any keyboard key or mouse button with optional Ctrl/Shift/Alt/Win modifiers, toggle launch at sign-in, or choose and preview a custom WAV completion sound. Settings save automatically. **Reset** restores Shift + right-click. The tray also offers **Mute sound** and **Quit Petal**; quitting is unavailable during conversion.
 
 ## Fits your desktop
 

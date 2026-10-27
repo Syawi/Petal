@@ -939,14 +939,17 @@ pub struct Panel<'a> {
     pub glass: Option<&'a [u32]>,
     /// Knob position of each switch, 0 = off .. 1 = on (animated by the caller).
     pub switches: [f32; 3],
-    /// Hovered or keyboard-focused target: 0..=2 rows, 3 = close, -1 none.
+    /// Hovered or keyboard-focused target: 0..=2 rows, 3 = close, 4 = all settings, -1 none.
     pub hover: i32,
     /// Open animation 0..1 (eased here) and fade-out alpha.
     pub open: f32,
     pub alpha: u8,
 }
-/// Settings panel target under a logical point: 0..=2 rows, 3 = close, -1 none.
+/// Settings panel target under a logical point: 0..=2 rows, 3 = close, 4 = all settings, -1 none.
 pub fn panel_hit(x: f32, y: f32) -> i32 {
+    if (x - PANEL_W as f32 / 2.0).abs() <= 70.0 && (PANEL_H as f32 - 42.0..=PANEL_H as f32 - 14.0).contains(&y) {
+        return 4;
+    }
     if (x - (PANEL_W as f32 - 34.0)).hypot(y - 30.0) <= 15.0 {
         return 3;
     }
@@ -1045,8 +1048,14 @@ unsafe fn draw_panel(s: &Surface, scale: f32, dark: bool, panel: &Panel) {
         let kx = tx + 4.0 + on * (tw - 8.0 - 16.0) + (16.0 - knob) / 2.0;
         ellipse(g, kx, ty + (th - knob) / 2.0, knob, knob, mix(0xfff2f2f2, knob_on, on));
     }
-    let footer = Style { left: false, bold: false };
-    styled(s, "Right-click any file to convert it", rect(0.0, h - 34.0, w, 18.0), 11.5, secondary, footer);
+    // Link to the full settings window (shortcut, startup, custom sound).
+    let link = rounded(w / 2.0 - 70.0, h - 42.0, 140.0, 28.0, 14.0);
+    if panel.hover == 4 {
+        fill(g, link, if glass.is_some() { with_alpha(0xffffffff, if dark { 0.14 } else { 0.45 }) } else { with_alpha(p.text, 0.08) });
+    }
+    GdipDeletePath(link);
+    let footer = Style { left: false, bold: true };
+    styled(s, "All settings…", rect(0.0, h - 37.0, w, 18.0), 12.5, if panel.hover == 4 { p.text } else { secondary }, footer);
 }
 pub unsafe fn paint(
     hwnd: HWND,
@@ -1454,6 +1463,7 @@ mod tests {
             assert_eq!(panel_hit(100.0, ROW_TOP + row as f32 * ROW_STEP + 28.0), row);
         }
         assert_eq!(panel_hit(5.0, 100.0), -1);
+        assert_eq!(panel_hit(PANEL_W as f32 / 2.0, PANEL_H as f32 - 28.0), 4);
         for (dark, scale, glassy) in [(true, 1.0, true), (false, 1.5, true), (true, 1.25, false)] {
             let (w, h) = ((PANEL_W as f64 * scale) as usize, (PANEL_H as f64 * scale) as usize);
             let raw: Vec<u32> = (0..w * h)

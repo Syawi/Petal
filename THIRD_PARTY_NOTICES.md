@@ -8,11 +8,11 @@ The embedded Paid sound is adapted from [Bencho Sounds](https://github.com/cabra
 
 ## Media tools
 
-FFmpeg and FFprobe are separate, unmodified executables obtained by Install-MediaEngine.ps1. The pinned Gyan essentials build is GPL v3; its license, source references and archive checksum are in [ffmpeg/](ffmpeg/). Media binaries are not committed to this repository or included in the core CI artifact. They are downloaded directly from the provider when the installation script is run.
+FFmpeg and FFprobe are separate, unmodified executables downloaded automatically on first audio/video conversion. Source builds can also prepare them with Install-MediaEngine.ps1. The pinned Gyan essentials build is GPL v3; its license, source references and archive checksum are in [ffmpeg/](ffmpeg/). Media binaries are not committed to this repository or included in the core CI artifact. They are downloaded directly from the provider with the pinned archive checksum, and their license is retained in the user data folder.
 
 ## Rust dependencies
 
-Cargo.toml and Cargo.lock identify the direct and transitive Rust dependencies. Their respective licenses apply; this project's MIT license does not replace them.
+Cargo.toml and Cargo.lock identify the direct and transitive Rust dependencies. Their respective licenses apply; this project's MIT license does not replace them. Complete Rust dependency and standard-library notices are embedded in assets/third-party-licenses.txt.gz and can be opened from Settings → Licenses.
 
 ## Windows fonts and rendering
 

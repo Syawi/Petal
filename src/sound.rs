@@ -1,5 +1,7 @@
 #[cfg(not(test))]
-use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT};
+use windows_sys::Win32::Media::Audio::{
+    PlaySoundW, SND_ASYNC, SND_FILENAME, SND_MEMORY, SND_NODEFAULT,
+};
 
 const PAID: &[u8] = include_bytes!("../assets/paid.wav");
 
@@ -9,6 +11,17 @@ pub static PLAYS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsiz
 pub fn success() {
     #[cfg(not(test))]
     unsafe {
+        if let Some(path) = crate::settings::sound_file() {
+            let path = crate::wide(&path.to_string_lossy());
+            if PlaySoundW(
+                path.as_ptr(),
+                std::ptr::null_mut(),
+                SND_FILENAME | SND_ASYNC | SND_NODEFAULT,
+            ) != 0
+            {
+                return;
+            }
+        }
         // Embedded bytes live for the entire asynchronous playback.
         PlaySoundW(
             PAID.as_ptr().cast(),
@@ -49,5 +62,44 @@ mod tests {
             .max()
             .unwrap();
         assert!((980..4000).contains(&peak));
+    }
+}
+
+pub fn validate_file(path: &std::path::Path) -> Result<(), String> {
+    use std::io::Read;
+    let mut file =
+        std::fs::File::open(path).map_err(|e| format!("Could not read the sound file: {e}"))?;
+    let size = file.metadata().map_err(|e| e.to_string())?.len();
+    let mut header = [0u8; 12];
+    if !(44..=8 * 1024 * 1024).contains(&size)
+        || file.read_exact(&mut header).is_err()
+        || &header[..4] != b"RIFF"
+        || &header[8..] != b"WAVE"
+        || u32::from_le_bytes(header[4..8].try_into().unwrap()) as u64 + 8 > size
+    {
+        return Err("Choose a valid WAV sound smaller than 8 MB.".into());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod custom_tests {
+    use super::*;
+    #[test]
+    fn custom_sound_validation_rejects_invalid_files() {
+        let directory = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target/test-data")
+            .join(format!("sound-validation-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("chosen.wav");
+        std::fs::write(&path, PAID).unwrap();
+        assert!(validate_file(&path).is_ok());
+        std::fs::write(&path, b"not a wave file").unwrap();
+        assert!(validate_file(&path).is_err());
+        let mut truncated = PAID[..44].to_vec();
+        truncated[4..8].copy_from_slice(&900_000u32.to_le_bytes());
+        std::fs::write(&path, truncated).unwrap();
+        assert!(validate_file(&path).is_err());
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }
