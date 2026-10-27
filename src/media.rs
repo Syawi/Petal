@@ -245,16 +245,17 @@ pub fn replace(source: &Path, index: usize) -> Result<PathBuf, String> {
     ])
     .arg(&work.input);
     if black {
+        // Bound the generated video; let the complete audio stream reach EOF.
+        let background = format!("color=c=black:s=1280x720:r=2:d={}", input.duration);
         cmd.args([
             "-f",
             "lavfi",
             "-i",
-            "color=c=black:s=1280x720:r=2",
+            &background,
             "-map",
             "1:v:0",
             "-map",
             "0:a:0",
-            "-shortest",
         ]);
     } else if video {
         cmd.args(["-map", "0:V:0", "-map", "0:a:0?"]);
@@ -349,7 +350,9 @@ pub fn replace(source: &Path, index: usize) -> Result<PathBuf, String> {
         || output.audio.len() != input.audio.len()
         || (output.duration - input.duration).abs() > 1.0
     {
-        return Err("Track or duration verification failed. The original was kept.".into());
+        return Err(format!(
+            "Track or duration verification failed. The original was kept.\nInput: {input:?}\nOutput: {output:?}"
+        ));
     }
     if video {
         let expected = if black { (1280, 720) } else { input.videos[0] };
@@ -444,13 +447,16 @@ mod tests {
             assert_eq!(probe(&dest).unwrap().audio.len(), 1);
             assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
             if ext == "mp3" {
+                let duration = probe(&dest).unwrap().duration;
                 let video = replace(&dest, format("mp4")).unwrap();
                 let info = probe(&video).unwrap();
                 assert_eq!(info.videos, [(1280, 720)]);
                 assert_eq!(info.audio.len(), 1);
+                assert!((info.duration - duration).abs() <= 0.5);
                 assert!(!dest.exists());
                 let wav = replace(&video, format("wav")).unwrap();
                 assert_eq!(probe(&wav).unwrap().audio.len(), 1);
+                assert!((probe(&wav).unwrap().duration - 0.6).abs() < 0.1);
                 assert!(!video.exists());
             }
             fs::remove_dir_all(dir).unwrap();
