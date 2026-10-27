@@ -23,6 +23,25 @@ pub fn logo_file() -> Result<PathBuf, String> {
         include_bytes!("../assets/petal.png"),
     )
 }
+fn attribution_png() -> Result<Vec<u8>, String> {
+    let icon = image::load_from_memory(include_bytes!("../assets/petal.png"))
+        .map_err(|e| e.to_string())?
+        .resize_exact(48, 48, image::imageops::FilterType::Lanczos3);
+    let mut encoded = std::io::Cursor::new(Vec::new());
+    icon.write_to(&mut encoded, image::ImageFormat::Png)
+        .map_err(|e| e.to_string())?;
+    Ok(encoded.into_inner())
+}
+pub fn attribution_icon_files() -> Result<(PathBuf, PathBuf), String> {
+    let directory = data_directory()?;
+    let png = write_asset(&directory, "notification-icon-v2.png", &attribution_png()?)?;
+    let ico = write_asset(
+        &directory,
+        "notification-icon-v2.ico",
+        include_bytes!("../assets/petal.ico"),
+    )?;
+    Ok((png, ico))
+}
 fn license_bytes() -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
     flate2::read::GzDecoder::new(&include_bytes!("../assets/third-party-licenses.txt.gz")[..])
@@ -52,6 +71,15 @@ pub unsafe fn open_licenses(owner: windows_sys::Win32::Foundation::HWND) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn attribution_icon_is_a_small_windows_png() {
+        let bytes = attribution_png().unwrap();
+        let decoded = image::load_from_memory(&bytes).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (48, 48));
+        assert!(bytes.len() < 20_000);
+        assert!(decoded.to_rgba8().pixels().any(|pixel| pixel[3] > 0));
+        assert_eq!(&include_bytes!("../assets/petal.ico")[..4], &[0, 0, 1, 0]);
+    }
     #[test]
     fn embedded_assets_work_without_adjacent_files() {
         let folder = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

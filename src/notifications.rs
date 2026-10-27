@@ -78,14 +78,14 @@ unsafe fn register_string(name: &str, value: &str) -> Result<(), String> {
         Err(std::io::Error::from_raw_os_error(status as i32).to_string())
     }
 }
-unsafe fn shortcut(exe: &Path) -> Result<(), String> {
+unsafe fn shortcut(exe: &Path, icon: &Path) -> Result<(), String> {
     let start = std::env::var_os("APPDATA").ok_or("APPDATA is unavailable")?;
     let path = PathBuf::from(start).join("Microsoft/Windows/Start Menu/Programs/Petal.lnk");
     let link: IShellLinkW =
         CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).map_err(error)?;
     let exe = crate::wide(&exe.to_string_lossy());
     link.SetPath(PCWSTR(exe.as_ptr())).map_err(error)?;
-    link.SetIconLocation(PCWSTR(exe.as_ptr()), 0)
+    link.SetIconLocation(PCWSTR(crate::wide(&icon.to_string_lossy()).as_ptr()), 0)
         .map_err(error)?;
     link.SetDescription(windows::core::w!("Petal file converter"))
         .map_err(error)?;
@@ -103,7 +103,15 @@ unsafe fn shortcut(exe: &Path) -> Result<(), String> {
     let persist: IPersistFile = link.cast().map_err(error)?;
     persist
         .Save(PCWSTR(crate::wide(&path.to_string_lossy()).as_ptr()), true)
-        .map_err(error)
+        .map_err(error)?;
+    // Tell the Shell to reload this shortcut's icon after a portable-app update.
+    windows_sys::Win32::UI::Shell::SHChangeNotify(
+        windows_sys::Win32::UI::Shell::SHCNE_UPDATEITEM as i32,
+        windows_sys::Win32::UI::Shell::SHCNF_PATHW | windows_sys::Win32::UI::Shell::SHCNF_FLUSH,
+        crate::wide(&path.to_string_lossy()).as_ptr().cast(),
+        std::ptr::null(),
+    );
+    Ok(())
 }
 impl Notifications {
     pub fn new() -> Result<Self, String> {
@@ -114,10 +122,11 @@ impl Notifications {
             let exe = std::env::current_exe().map_err(error)?;
             let image = crate::runtime::logo_file()?;
             let image_uri = file_uri(&image)?;
+            let (attribution_icon, shortcut_icon) = crate::runtime::attribution_icon_files()?;
             register_string("DisplayName", "Petal")?;
-            register_string("IconUri", &image.to_string_lossy())?;
-            register_string("IconBackgroundColor", "#0C1015")?;
-            shortcut(&exe)?;
+            register_string("IconUri", &attribution_icon.to_string_lossy())?;
+            register_string("IconBackgroundColor", "FF0C1015")?;
+            shortcut(&exe, &shortcut_icon)?;
             let notifier =
                 ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(APP_ID))
                     .map_err(error)?;
