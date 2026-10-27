@@ -81,7 +81,7 @@ fn install_engine(directory: &Path) -> Result<(), String> {
     }
     let destination = directory.to_string_lossy().replace('\'', "''");
     let script = format!(
-        "& {{\n{}\n}} -Destination '{}'",
+        "$env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules'); & {{\n{}\n}} -Destination '{}'",
         include_str!("../Install-MediaEngine.ps1"),
         destination
     );

@@ -998,13 +998,8 @@ fn main() {
             let result = index
                 .ok_or_else(|| "Unknown format".into())
                 .and_then(|i| convert::convert_file(&PathBuf::from(&args[2]), i));
-            if let Err(e) = result {
-                MessageBoxW(
-                    null_mut(),
-                    wide(&e).as_ptr(),
-                    wide("Petal").as_ptr(),
-                    MB_OK | MB_ICONERROR,
-                );
+            if let Err(error) = result {
+                eprintln!("{error}");
                 std::process::exit(1);
             }
             return;
