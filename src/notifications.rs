@@ -112,13 +112,7 @@ impl Notifications {
             SetCurrentProcessExplicitAppUserModelID(windows::core::w!("Petal.Converter"))
                 .map_err(error)?;
             let exe = std::env::current_exe().map_err(error)?;
-            let image = exe
-                .parent()
-                .ok_or("Application folder is unavailable")?
-                .join("assets/petal.png");
-            if !image.is_file() {
-                return Err("Notification logo is missing: assets/petal.png".into());
-            }
+            let image = crate::runtime::logo_file()?;
             let image_uri = file_uri(&image)?;
             register_string("DisplayName", "Petal")?;
             register_string("IconUri", &image.to_string_lossy())?;

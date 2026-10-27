@@ -29,11 +29,10 @@ jobs:
         run: ./Install-MediaEngine.ps1
       - name: Test and build
         run: ./Build.ps1
-      - name: Assemble the portable core
+      - name: Assemble the standalone executable
         run: |
-          New-Item -ItemType Directory -Path dist/Petal/assets -Force | Out-Null
-          Copy-Item Petal.exe, README.md, FORMATS.md, LICENSE, THIRD_PARTY_NOTICES.md, Install-MediaEngine.ps1 dist/Petal/
-          Copy-Item assets/petal.png, assets/BENCHO-LICENSE.txt dist/Petal/assets/
+          New-Item -ItemType Directory -Path dist/Petal -Force | Out-Null
+          Copy-Item Petal.exe dist/Petal/
       - name: Upload Windows build
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

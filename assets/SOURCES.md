@@ -17,3 +17,6 @@ The spinner is a native Rust implementation inspired by Watch Spinner, by Amicro
 
 ## Application mark
 Approved blue three-petal ribbon concept 1A. Vector master: petal.svg. petal.ico contains nine transparent PNG sizes. petal-icon.res and petal-icon.o embed those exact images for MSVC and GNU builds. Resource source: petal.rc. petal.png provides the explicit notification image. No external logo font or reference image is needed at runtime.
+
+## Embedded license notices
+third-party-licenses.txt.gz contains Petal and Bencho license texts, notices from the locked Cargo dependency graph, and Rust standard-library notices. It is decompressed locally for Settings → Licenses. Dependency notices use the same locked versions as v1.0; no dependency versions changed in v1.1.

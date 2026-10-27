@@ -12,9 +12,9 @@ Petal.exe --test-notification sends a harmless Conversion complete sample withou
 
 Image and media round trips, independent PDF parsing and rendering, and DOCX/ODT interoperability have been checked during development. Windows loads the executable icon at 16, 24, 32, 48 and 256 pixels. The visible-success mute path is exercised by the native message-loop test.
 
-The final branded Windows notification was inspected on screen: the blue logo appears in both the sender header and the app-logo area beside Conversion complete. The notification diagnostic exited successfully and the per-user Start-menu shortcut and identity registration were checked. Sound-setting persistence through the actual tray UI has not yet been checked manually.
+The final branded Windows notification was inspected on screen: the blue logo appears in both the sender header and the app-logo area beside Conversion complete. The notification diagnostic exited successfully and the per-user Start-menu shortcut and identity registration were checked. Settings provide shortcut capture, per-user startup and completion-sound controls. Startup command quoting, binding serialization and custom WAV validation have automated coverage.
 
-Current suite result: 38 tests passed; two opt-in tasks are ignored by default (the interactive desktop check and README-frame export). The frame exporter has also been run explicitly and its output inspected. Build and media-install scripts pass the PowerShell syntax parser. Authored source, script and documentation files were scanned for remaining legacy names and non-English application text.
+Current suite result: 42 tests passed; two opt-in tasks are ignored by default (the interactive desktop check and README-frame export). The frame exporter has also been run explicitly and its output inspected. Build and media-install scripts pass the PowerShell syntax parser. Authored source, script and documentation files were scanned for remaining legacy names and non-English application text.
 
 ## Data handling
 Use copies for exploratory conversion tests. The original must remain byte-for-byte unchanged after every conversion. Metadata, image profiles, document layout and media attachments are not guaranteed to survive. Existing output files are never overwritten.

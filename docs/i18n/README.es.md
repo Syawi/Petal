@@ -41,21 +41,13 @@ Audio → MP4 genera un vídeo con fondo negro y el sonido del archivo. Vídeo �
 
 **Requisitos: Windows 11 x64.**
 
-### Descargar v1.0
+### Descargar v1.1
 
-Descarga **Petal-v1.0-Windows-x64.zip** desde la [versión v1.0](https://github.com/Syawi/Petal/releases/tag/v1.0). Extrae toda la carpeta y ejecuta `Petal.exe`. Incluye la aplicación, el código fuente y la documentación. Las herramientas de audio y vídeo se instalan por separado con `Install-MediaEngine.ps1`.
+Descarga **[Petal.exe](https://github.com/Syawi/Petal/releases/download/v1.1/Petal.exe)** y ejecútalo directamente en Windows 11 x64. No necesitas ZIP, carpeta de recursos, permisos de administrador ni Office.
 
-### Descargar una compilación
+El logotipo, el sonido y las licencias están integrados. Petal guarda sus archivos de funcionamiento en `%LOCALAPPDATA%/Petal`. En la primera conversión de audio/vídeo descarga y verifica automáticamente FFmpeg (unos 109 MB); después funciona sin conexión. Las imágenes y los documentos no necesitan esa descarga.
 
-Abre una ejecución correcta del [workflow de Windows](https://github.com/Syawi/Petal/actions/workflows/windows.yml) y descarga **Petal-Windows-x64** desde sus artifacts. Es necesario iniciar sesión en GitHub. Extrae toda la carpeta y ejecuta `Petal.exe`.
-
-La compilación básica admite imágenes y documentos. Para activar audio y vídeo, ejecuta una vez el script incluido desde PowerShell en esa carpeta:
-
-```powershell
-./Install-MediaEngine.ps1
-```
-
-Mantén `assets/` y, tras instalarlo, `ffmpeg/` junto a `Petal.exe`. No se necesitan permisos de administrador ni Office. La aplicación registra un acceso directo del menú Inicio y una identidad de notificación para el usuario actual; no se añade al inicio automático.
+El inicio con Windows se activa la primera vez y puede desactivarse en **Settings**. Conserva el ejecutable en una ubicación estable. Las licencias están en **Settings → Licenses**.
 
 ### Compilar el código fuente
 
@@ -73,10 +65,10 @@ El script prepara FFmpeg/FFprobe, comprueba el SHA-256 de la descarga, ejecuta l
 ## Usar el menú radial
 
 1. Inicia `Petal.exe`. Su icono azul aparece en la bandeja del sistema, a veces entre los iconos ocultos.
-2. Haz clic derecho en un archivo compatible del Explorador o del escritorio.
+2. Mantén **Mayús** y haz clic derecho en un archivo compatible del Explorador o del escritorio.
 3. Elige un formato. Petal crea y verifica la copia y muestra **Conversion complete**.
 
-El centro abre **Windows menu**. **Mayús + clic derecho** permite abrir directamente el menú de Windows. Haz clic fuera o pulsa **Esc** para ocultar el menú; una conversión activa continúa en segundo plano.
+El centro abre **Windows menu**. Un clic derecho normal abre el menú de Windows. **Mayús + clic derecho** abre Petal de forma predeterminada; el atajo es personalizable. Haz clic fuera o pulsa **Esc** para ocultar el menú; una conversión activa continúa en segundo plano.
 
 | Atajo | Acción |
 | --- | --- |
@@ -84,6 +76,8 @@ El centro abre **Windows menu**. **Mayús + clic derecho** permite abrir directa
 | `Tab`, después `Enter` / `Espacio` | Seleccionar y activar una opción |
 | `M` | Abrir el menú contextual de Windows |
 | `Esc` | Ocultar el menú o la animación |
+
+Abre **Settings…** desde la bandeja para capturar una tecla o botón del ratón con Ctrl/Mayús/Alt/Win, configurar el inicio con Windows o elegir y probar un sonido WAV. Los cambios se guardan automáticamente. **Reset** restaura Mayús + clic derecho.
 
 En el menú del icono de la bandeja, **Mute sound** silencia el sonido y **Quit Petal** cierra la aplicación. La preferencia de sonido se guarda. No se puede salir durante una conversión.
 
