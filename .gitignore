@@ -1,0 +1,10 @@
+/target/
+/dist/
+/Petal.exe
+/ffmpeg/*.exe
+/graphify-out/
+*.log
+*.tmp
+.petal-*
+.env
+.env.*

@@ -1,0 +1,15 @@
+* text=auto eol=lf
+*.rs text eol=lf
+*.toml text eol=lf
+*.lock text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.ps1 text eol=crlf
+*.svg text eol=lf
+*.png binary
+*.gif binary
+*.ico binary
+*.wav binary
+*.res binary
+*.o binary
+ffmpeg/README.txt -whitespace
