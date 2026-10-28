@@ -50,9 +50,9 @@ Read [FORMATS.md](FORMATS.md) for supported inputs, codecs, limits and preservat
 
 **Requirements:** Windows 11 x64. The interface is in English.
 
-### Download v1.2
+### Download v1.2.1
 
-Download **[Petal.exe](https://github.com/Syawi/Petal/releases/download/v1.2/Petal.exe)** and run it directly. No ZIP, adjacent assets folder, administrator access or Office installation is needed.
+Download **[Petal.exe](https://github.com/Syawi/Petal/releases/download/v1.2.1/Petal.exe)** and run it directly. No ZIP, adjacent assets folder, administrator access or Office installation is needed.
 
 The logo, completion sound and license notices are embedded. Petal stores its small runtime files under `%LOCALAPPDATA%/Petal`. On the first audio/video conversion it downloads and verifies the pinned FFmpeg engine (about 109 MB); later conversions work offline. Images and documents never need it.
 

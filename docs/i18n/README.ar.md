@@ -43,9 +43,9 @@ Petal أداة أصلية لنظام Windows 11 تجمع تحويل الصور �
 
 **المتطلبات: Windows 11 x64.**
 
-### تنزيل v1.2
+### تنزيل v1.2.1
 
-نزّل **[Petal.exe](https://github.com/Syawi/Petal/releases/download/v1.2/Petal.exe)** وشغّله مباشرة على Windows 11 x64. لا تحتاج إلى ZIP أو مجلد موارد أو صلاحيات مسؤول أو Office.
+نزّل **[Petal.exe](https://github.com/Syawi/Petal/releases/download/v1.2.1/Petal.exe)** وشغّله مباشرة على Windows 11 x64. لا تحتاج إلى ZIP أو مجلد موارد أو صلاحيات مسؤول أو Office.
 
 الشعار والصوت والتراخيص مضمّنة. تُحفظ ملفات التشغيل في `%LOCALAPPDATA%/Petal`. عند أول تحويل للصوت أو الفيديو يُنزَّل محرّك FFmpeg تلقائيًا مع التحقق منه (حوالي 109 MB)، ثم تعمل التحويلات دون اتصال. لا تحتاج الصور والمستندات إلى هذا التنزيل.
 
