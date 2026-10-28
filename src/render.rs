@@ -110,13 +110,33 @@ pub fn panel_bend(x: f32, y: f32) -> (f32, f32) {
     (edge(x, PANEL_W as f32), edge(y, PANEL_H as f32))
 }
 /// Frosts (blur + saturation + theme wash) and refracts a backdrop through a shape.
+/// The blur runs on a 4× smaller copy and is sampled back bilinearly: identical look for
+/// a blurred surface, about 16× less work, which lets live glass resample every frame.
 pub fn glass_from(raw: &[u32], w: usize, h: usize, scale: f64, dark: bool, bend: Bend) -> Vec<u32> {
-    let mut blurred = raw.to_vec();
-    let mut buffer = vec![0u32; raw.len()];
-    let radius = (6.0 * scale).round().max(1.0) as usize;
+    const F: usize = 4;
+    let (lw, lh) = (w.div_ceil(F).max(1), h.div_ceil(F).max(1));
+    let mut small = vec![0u32; lw * lh];
+    for ly in 0..lh {
+        for lx in 0..lw {
+            let (mut sum, mut n) = ([0u32; 3], 0);
+            for y in ly * F..((ly + 1) * F).min(h) {
+                for x in lx * F..((lx + 1) * F).min(w) {
+                    let c = raw[y * w + x];
+                    for (k, shift) in [16, 8, 0].into_iter().enumerate() {
+                        sum[k] += (c >> shift) & 255;
+                    }
+                    n += 1;
+                }
+            }
+            let n = n.max(1);
+            small[ly * lw + lx] = 0xff000000 | (sum[0] / n) << 16 | (sum[1] / n) << 8 | sum[2] / n;
+        }
+    }
+    let mut buffer = vec![0u32; small.len()];
+    let radius = (6.0 * scale / F as f64).round().max(1.0) as usize;
     for _ in 0..3 {
-        box_blur(&blurred, &mut buffer, w, h, radius, true);
-        box_blur(&buffer, &mut blurred, w, h, radius, false);
+        box_blur(&small, &mut buffer, lw, lh, radius, true);
+        box_blur(&buffer, &mut small, lw, lh, radius, false);
     }
     let (wash, toward) = if dark { (0.58, 28.0) } else { (0.55, 248.0) };
     let scale = scale as f32;
@@ -124,10 +144,18 @@ pub fn glass_from(raw: &[u32], w: usize, h: usize, scale: f64, dark: bool, bend:
     for py in 0..h {
         for px in 0..w {
             let (bx, by) = bend(px as f32 / scale, py as f32 / scale);
-            let sx = (bx * scale).round().clamp(0.0, w as f32 - 1.0) as usize;
-            let sy = (by * scale).round().clamp(0.0, h as f32 - 1.0) as usize;
-            let c = blurred[sy * w + sx];
-            let channel = |shift: u32| ((c >> shift) & 255) as f32;
+            // Low-resolution coordinates of the bent sample, then a bilinear read.
+            let fx = (bx * scale / F as f32 - 0.5).clamp(0.0, lw as f32 - 1.0);
+            let fy = (by * scale / F as f32 - 0.5).clamp(0.0, lh as f32 - 1.0);
+            let (x0, y0) = (fx as usize, fy as usize);
+            let (x1, y1) = ((x0 + 1).min(lw - 1), (y0 + 1).min(lh - 1));
+            let (tx, ty) = (fx - x0 as f32, fy - y0 as f32);
+            let channel = |shift: u32| {
+                let at = |x: usize, y: usize| ((small[y * lw + x] >> shift) & 255) as f32;
+                let top = at(x0, y0) + (at(x1, y0) - at(x0, y0)) * tx;
+                let bottom = at(x0, y1) + (at(x1, y1) - at(x0, y1)) * tx;
+                top + (bottom - top) * ty
+            };
             let (r8, g8, b8) = (channel(16), channel(8), channel(0));
             let l = 0.3 * r8 + 0.59 * g8 + 0.11 * b8;
             let finish = |v: f32| {
@@ -1574,36 +1602,318 @@ mod tests {
             }
         }
     }
+    /// Soft coloured glows on a deep or pale base: a synthetic wallpaper for the glass to
+    /// refract, so README media never contains anyone's real desktop.
+    fn wallpaper(w: usize, h: usize, dark: bool) -> Vec<u32> {
+        let base = if dark {
+            [11.0, 16.0, 32.0]
+        } else {
+            [233.0, 238.0, 247.0]
+        };
+        let glows = [
+            ((0.18, 0.22), [124.0, 77.0, 255.0]),
+            ((0.80, 0.18), [255.0, 84.0, 170.0]),
+            ((0.62, 0.88), [32.0, 196.0, 230.0]),
+            ((0.10, 0.92), [255.0, 150.0, 60.0]),
+        ];
+        let aspect = w as f32 / h as f32;
+        (0..w * h)
+            .map(|i| {
+                let (x, y) = ((i % w) as f32 / w as f32, (i / w) as f32 / h as f32);
+                let mut c = base;
+                for ((gx, gy), glow) in glows {
+                    let d2 = ((x - gx) * aspect).powi(2) + (y - gy).powi(2);
+                    let k = (-d2 / 0.12).exp() * if dark { 0.8 } else { 0.5 };
+                    for j in 0..3 {
+                        c[j] += (glow[j] - c[j]) * k;
+                    }
+                }
+                0xff000000 | (c[0] as u32) << 16 | (c[1] as u32) << 8 | c[2] as u32
+            })
+            .collect()
+    }
+    fn crop(src: &[u32], width: usize, x: usize, y: usize, w: usize, h: usize) -> Vec<u32> {
+        (0..h)
+            .flat_map(|row| src[(y + row) * width + x..][..w].iter().copied())
+            .collect()
+    }
+    /// An opaque canvas surface holding `background`.
+    unsafe fn canvas(background: &[u32], w: i32, h: i32) -> Surface {
+        let s = new_surface(w, h, 1.0).unwrap();
+        std::ptr::copy_nonoverlapping(background.as_ptr(), s.pixels, background.len());
+        s
+    }
+    /// Composites a premultiplied surface onto an opaque canvas.
+    unsafe fn place(dst: &Surface, src: &Surface, x: i32, y: i32) {
+        GdipFlush(dst.graphics, FlushIntentionSync);
+        GdipFlush(src.graphics, FlushIntentionSync);
+        for sy in 0..src.height {
+            for sx in 0..src.width {
+                let (dx, dy) = (x + sx, y + sy);
+                if dx < 0 || dy < 0 || dx >= dst.width || dy >= dst.height {
+                    continue;
+                }
+                let s = *src.pixels.add((sy * src.width + sx) as usize);
+                let a = s >> 24;
+                if a == 0 {
+                    continue;
+                }
+                let d = dst.pixels.add((dy * dst.width + dx) as usize);
+                let mut out = 0xff000000;
+                for shift in [0, 8, 16] {
+                    let (sc, dc) = ((s >> shift) & 255, (*d >> shift) & 255);
+                    out |= (sc + dc * (255 - a) / 255).min(255) << shift;
+                }
+                *d = out;
+            }
+        }
+    }
+    /// The radial menu in liquid glass (or classic), refracting the canvas behind it.
+    unsafe fn menu_on(
+        dst: &Surface,
+        background: &[u32],
+        (x, y, scale): (i32, i32, f64),
+        dark: bool,
+        glassy: bool,
+        visual: &Visual,
+        elapsed: Option<u64>,
+    ) {
+        let side = (400.0 * scale).round() as usize;
+        let behind = crop(
+            background,
+            dst.width as usize,
+            x as usize,
+            y as usize,
+            side,
+            side,
+        );
+        let glass = glass_from(&behind, side, side, scale, dark, menu_bend);
+        let lit = Visual {
+            glass: glassy.then_some(&glass[..]),
+            ..*visual
+        };
+        let menu = surface_visual(scale, dark, elapsed, &lit).unwrap();
+        place(dst, &menu, x, y);
+    }
+    unsafe fn write(
+        s: &Surface,
+        value: &str,
+        (x, y): (f32, f32),
+        size: f32,
+        color: u32,
+        bold: bool,
+    ) {
+        let layout = rect(x, y, 900.0, size * 1.6);
+        styled(s, value, layout, size, color, Style { left: true, bold });
+    }
+    fn pixels(s: &Surface) -> Vec<u32> {
+        unsafe {
+            GdipFlush(s.graphics, FlushIntentionSync);
+            std::slice::from_raw_parts(s.pixels, (s.width * s.height) as usize).to_vec()
+        }
+    }
+    /// Animated GIF that stores only the changed rectangle of each frame, with unchanged
+    /// pixels transparent, so a mostly static background costs almost nothing.
+    fn write_gif(path: &Path, w: u16, h: u16, frames: &[Vec<u32>], delay_ms: u16) {
+        let file = std::fs::File::create(path).unwrap();
+        let mut encoder = gif::Encoder::new(file, w, h, &[]).unwrap();
+        encoder.set_repeat(gif::Repeat::Infinite).unwrap();
+        let mut previous: Option<&Vec<u32>> = None;
+        for frame in frames {
+            let width = w as usize;
+            let changed = |i: usize| previous.is_none_or(|p| p[i] != frame[i]);
+            let (mut x0, mut y0, mut x1, mut y1) = (width, h as usize, 0, 0);
+            for i in (0..frame.len()).filter(|&i| changed(i)) {
+                let (x, y) = (i % width, i / width);
+                (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x + 1), y1.max(y + 1));
+            }
+            if x0 >= x1 {
+                (x0, y0, x1, y1) = (0, 0, 1, 1);
+            }
+            let mut rgba = Vec::with_capacity((x1 - x0) * (y1 - y0) * 4);
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    let i = y * width + x;
+                    let c = frame[i];
+                    let alpha = if changed(i) { 255 } else { 0 };
+                    rgba.extend_from_slice(&[(c >> 16) as u8, (c >> 8) as u8, c as u8, alpha]);
+                }
+            }
+            let mut out =
+                gif::Frame::from_rgba_speed((x1 - x0) as u16, (y1 - y0) as u16, &mut rgba, 10);
+            out.left = x0 as u16;
+            out.top = y0 as u16;
+            out.delay = delay_ms / 10;
+            out.dispose = gif::DisposalMethod::Keep;
+            encoder.write_frame(&out).unwrap();
+            previous = Some(frame);
+        }
+    }
     #[test]
-    #[ignore = "Exports native frames for the README; run explicitly when updating documentation"]
-    fn export_documentation_frames() {
-        let out = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("target/documentation-frames");
+    #[ignore = "Writes the README media into docs/media; run explicitly when updating documentation"]
+    fn export_readme_media() {
+        let out = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("docs/media");
         std::fs::create_dir_all(&out).unwrap();
-        for frame in 0..91 {
-            let mut visual = Visual::menu(-1, 0xff0078d4);
-            visual.formats = crate::convert::menu_formats(std::path::Path::new("sample.jpg"));
-            let elapsed = if frame < 16 { Some(frame * 40) } else { None };
-            match frame {
-                24..=29 => visual.hover = hover_weights([0.0; 7], 1, (frame - 24) * 40),
-                30..=39 => visual.hover[1] = 1.0,
-                40..=63 => {
-                    visual.feedback = Feedback::Working {
-                        elapsed: (frame - 40) * 40,
-                        animate: true,
-                    }
-                }
-                64..=90 => {
-                    visual.feedback = Feedback::Success {
-                        elapsed: ((frame - 64) * 40).min(CHECK_MS),
-                    }
-                }
-                _ => (),
+        let formats = crate::convert::menu_formats(Path::new("sample.jpg"));
+        let (white, muted, accent) = (0xfff7faff, 0xffa7b3c3, 0xffc9b8ff);
+        unsafe {
+            // Hero: the glass wheel with one petal lit, next to the pitch.
+            let (w, h) = (1440, 640);
+            let back = wallpaper(w, h, true);
+            let hero = canvas(&back, w as i32, h as i32);
+            let mut visual = Visual::menu(1, 0xff0078d4);
+            visual.formats = formats;
+            menu_on(&hero, &back, (150, 70, 1.25), true, true, &visual, None);
+            let logo = image::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/petal.png"))
+                .unwrap()
+                .resize(64, 64, image::imageops::FilterType::Lanczos3)
+                .to_rgba8();
+            let mark = new_surface(64, 64, 1.0).unwrap();
+            for (x, y, p) in logo.enumerate_pixels() {
+                let a = p[3] as u32;
+                *mark.pixels.add((y * 64 + x) as usize) = a << 24
+                    | (p[0] as u32 * a / 255) << 16
+                    | (p[1] as u32 * a / 255) << 8
+                    | p[2] as u32 * a / 255;
             }
-            unsafe {
-                let surface = surface_visual(1.0, true, elapsed, &visual).unwrap();
-                save(&surface, &out.join(format!("frame-{frame:03}.png")));
+            place(&hero, &mark, 780, 132);
+            write(&hero, "Petal", (862.0, 124.0), 64.0, white, true);
+            write(
+                &hero,
+                "Convert at a click.",
+                (782.0, 246.0),
+                42.0,
+                white,
+                true,
+            );
+            write(
+                &hero,
+                "Images, media and documents,",
+                (784.0, 322.0),
+                25.0,
+                muted,
+                false,
+            );
+            let pitch = "in a liquid glass wheel right where you work.";
+            write(&hero, pitch, (784.0, 360.0), 25.0, muted, false);
+            write(
+                &hero,
+                "WINDOWS 11   /   RUST   /   MIT",
+                (786.0, 470.0),
+                17.0,
+                accent,
+                true,
+            );
+            save(&hero, &out.join("hero.png"));
+
+            // Themes: liquid glass and classic, dark and light.
+            let (cw, ch) = (560usize, 480usize);
+            let (w, h) = (cw * 2, ch * 2);
+            let cells = [
+                (0, 0, true, true, "Liquid glass · dark"),
+                (1, 0, false, true, "Liquid glass · light"),
+                (0, 1, true, false, "Classic · dark"),
+                (1, 1, false, false, "Classic · light"),
+            ];
+            let mut back = vec![0u32; w * h];
+            for (col, row, dark, glassy, _) in cells {
+                let cell = if glassy {
+                    wallpaper(cw, ch, dark)
+                } else {
+                    vec![if dark { 0xff0c1118 } else { 0xfff1f3f6 }; cw * ch]
+                };
+                for y in 0..ch {
+                    let at = (row * ch + y) * w + col * cw;
+                    back[at..at + cw].copy_from_slice(&cell[y * cw..][..cw]);
+                }
             }
+            let themes = canvas(&back, w as i32, h as i32);
+            for (col, row, dark, glassy, label) in cells {
+                let mut visual = Visual::menu(1, 0xff0078d4);
+                visual.formats = formats;
+                let (x, y) = ((col * cw + 100) as i32, (row * ch + 84) as i32);
+                menu_on(&themes, &back, (x, y, 0.9), dark, glassy, &visual, None);
+                let ink = if dark { white } else { 0xff172130 };
+                let at = ((col * cw + 32) as f32, (row * ch + 26) as f32);
+                write(&themes, label, at, 24.0, ink, true);
+            }
+            save(&themes, &out.join("themes.png"));
+
+            // Quick settings: the glass panel opened from the tray, dark and light.
+            let (pw, ph) = (PANEL_W as usize, PANEL_H as usize);
+            let (w, h) = (pw * 2 + 120, ph + 80);
+            let mut back = wallpaper(w, h, true);
+            let light = wallpaper(w, h, false);
+            for y in 0..h {
+                let at = y * w + w / 2;
+                back[at..at + w - w / 2].copy_from_slice(&light[at..at + w - w / 2]);
+            }
+            let quick = canvas(&back, w as i32, h as i32);
+            for (x, dark, hover) in [(40usize, true, 0), (pw + 80, false, 4)] {
+                let behind = crop(&back, w, x, 40, pw, ph);
+                let glass = glass_from(&behind, pw, ph, 1.0, dark, panel_bend);
+                let panel = Panel {
+                    accent: 0xff0078d4,
+                    glass: Some(&glass),
+                    switches: [1.0, 1.0, 0.0],
+                    hover,
+                    open: 1.0,
+                    alpha: 255,
+                };
+                let s = new_surface(PANEL_W, PANEL_H, 1.0).unwrap();
+                draw_panel(&s, 1.0, dark, &panel);
+                place(&quick, &s, x as i32, 40);
+            }
+            save(&quick, &out.join("quick-settings.png"));
+
+            // Demo: bubble reveal, glowing hover, conversion and the check.
+            let (w, h) = (1040usize, 520usize);
+            let back = wallpaper(w, h, true);
+            let mut frames = Vec::new();
+            for frame in 0..96u64 {
+                let mut visual = Visual::menu(-1, 0xff0078d4);
+                visual.formats = formats;
+                let elapsed = (frame < 14).then_some(frame * 40);
+                let lit_png = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+                match frame {
+                    20..=25 => visual.hover = hover_weights([0.0; 7], 1, (frame - 20) * 40),
+                    26..=33 => visual.hover = lit_png,
+                    34..=39 => visual.hover = hover_weights(lit_png, 2, (frame - 34) * 40),
+                    40..=45 => visual.hover[2] = 1.0,
+                    46..=67 => {
+                        visual.feedback = Feedback::Working {
+                            elapsed: (frame - 46) * 40,
+                            animate: true,
+                        }
+                    }
+                    68.. => {
+                        visual.feedback = Feedback::Success {
+                            elapsed: ((frame - 68) * 40).min(CHECK_MS),
+                        }
+                    }
+                    _ => (),
+                }
+                let s = canvas(&back, w as i32, h as i32);
+                if frame > 0 {
+                    menu_on(&s, &back, (76, 40, 1.1), true, true, &visual, elapsed);
+                }
+                let (title, note) = match frame {
+                    0..=19 => ("Open the wheel", "Shift + right-click a supported file."),
+                    20..=45 => ("Choose a format", "Hover lights the glass up."),
+                    46..=67 => ("Converting…", "Petal checks the result before saving it."),
+                    _ => (
+                        "Conversion complete",
+                        "A copy is saved next to the original.",
+                    ),
+                };
+                write(&s, "PETAL", (580.0, 150.0), 17.0, accent, true);
+                write(&s, title, (578.0, 186.0), 34.0, white, true);
+                write(&s, note, (580.0, 250.0), 20.0, muted, false);
+                let credit = "Rendered by the native Petal engine";
+                write(&s, credit, (580.0, 392.0), 15.0, 0xff8391a8, false);
+                frames.push(pixels(&s));
+            }
+            write_gif(&out.join("demo.gif"), w as u16, h as u16, &frames, 40);
         }
     }
     #[test]

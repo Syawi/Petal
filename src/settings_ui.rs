@@ -28,6 +28,8 @@ const PREVIEW: i32 = 106;
 const DEFAULT_SOUND: i32 = 107;
 const DONE: i32 = 108;
 const LICENSES: i32 = 109;
+const THEME_GLASS: i32 = 110;
+const THEME_CLASSIC: i32 = 111;
 static PANEL: AtomicUsize = AtomicUsize::new(0);
 static CAPTURING: AtomicBool = AtomicBool::new(false);
 struct Panel {
@@ -36,6 +38,8 @@ struct Panel {
     binding: settings::Binding,
     sound: bool,
     startup: bool,
+    /// Radial menu theme: Liquid glass or Classic.
+    glass: bool,
     sound_file: Option<std::path::PathBuf>,
     status: String,
     hover: usize,
@@ -381,18 +385,18 @@ unsafe fn draw_button(hwnd: HWND, draw: &DRAWITEMSTRUCT) {
     let accent = render::system_accent() & 0xffffff;
     let id = draw.CtlID as i32;
     let toggle = id == STARTUP || id == SOUND;
-    let on = if id == STARTUP {
-        panel.startup
-    } else {
-        panel.sound
+    let on = match id {
+        STARTUP => panel.startup,
+        SOUND => panel.sound,
+        THEME_GLASS => panel.glass,
+        THEME_CLASSIC => !panel.glass,
+        _ => false,
     };
+    // Toggles and the chosen theme show as selected (accent fill, black text).
+    let selected = on && (toggle || id == THEME_GLASS || id == THEME_CLASSIC);
     let hover = panel.hover == id as usize || draw.itemState & ODS_SELECTED != 0;
-    let fill = if (toggle && on) || hover {
-        accent
-    } else {
-        surface
-    };
-    let color = if (toggle && on) || hover { 0 } else { fg };
+    let fill = if selected || hover { accent } else { surface };
+    let color = if selected || hover { 0 } else { fg };
     let area = draw.rcItem;
     rounded(
         draw.hDC,
@@ -529,6 +533,15 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
                     }
                     result
                 }
+                THEME_GLASS | THEME_CLASSIC => {
+                    let glass = id == THEME_GLASS;
+                    let result = settings::save(settings::GLASS, glass);
+                    if result.is_ok() {
+                        data(hwnd).glass = glass;
+                        RedrawWindow(hwnd, null(), null_mut(), RDW_INVALIDATE | RDW_ALLCHILDREN);
+                    }
+                    result
+                }
                 CHOOSE => choose_sound(hwnd),
                 PREVIEW => {
                     crate::sound::success();
@@ -580,6 +593,8 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
                 ],
             );
             for (id, x, y, w, h) in [
+                (THEME_GLASS, 380, 40, 112, 34),
+                (THEME_CLASSIC, 496, 40, 112, 34),
                 (SHORTCUT, 50, 188, 390, 34),
                 (RESET, 454, 188, 136, 34),
                 (STARTUP, 528, 281, 60, 30),
@@ -704,6 +719,7 @@ pub unsafe fn show(owner: HWND) {
         binding: settings::binding(),
         sound: settings::sound_enabled(),
         startup: settings::startup_enabled(),
+        glass: settings::enabled(settings::GLASS),
         sound_file: settings::sound_file(),
         status: "Changes saved automatically.".into(),
         hover: 0,
@@ -717,6 +733,8 @@ pub unsafe fn show(owner: HWND) {
     });
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(panel) as isize);
     PANEL.store(hwnd as usize, Ordering::Relaxed);
+    button(hwnd, THEME_GLASS, "Liquid glass", 380, 40, 112, 34);
+    button(hwnd, THEME_CLASSIC, "Classic", 496, 40, 112, 34);
     button(hwnd, SHORTCUT, "", 50, 188, 390, 34);
     button(hwnd, RESET, "Reset", 454, 188, 136, 34);
     button(hwnd, STARTUP, "", 528, 281, 60, 30);

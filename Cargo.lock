@@ -508,6 +508,7 @@ name = "petal"
 version = "1.2.0"
 dependencies = [
  "flate2",
+ "gif",
  "html-escape",
  "image",
  "lopdf",

@@ -20,7 +20,7 @@ Vista previa generada con el renderizador nativo y un nombre de archivo de ejemp
 
 - Hasta seis formatos adecuados para el archivo; el formato actual se sustituye por una alternativa.
 - Conversión local de imágenes, audio, vídeo y documentos de texto, sin subir archivos.
-- Temas claro y oscuro, color de énfasis de Windows, pétalos animados y compatibilidad con movimiento reducido.
+- Tema **Liquid glass** por defecto: los pétalos y el centro son vidrio esmerilado que refracta el escritorio y se abren con una animación de burbuja. También hay un tema clásico con el color de énfasis de Windows.
 - Indicador de carga, marca de confirmación, notificación de Windows con el logotipo y sonido opcional.
 - Rust con Win32/GDI+, sin entorno de navegador.
 
@@ -68,7 +68,7 @@ El script prepara FFmpeg/FFprobe, comprueba el SHA-256 de la descarga, ejecuta l
 2. Mantén **Mayús** y haz clic derecho en un archivo compatible del Explorador o del escritorio.
 3. Elige un formato. Petal crea y verifica la copia y muestra **Conversion complete**.
 
-El centro abre **Windows menu**. Un clic derecho normal abre el menú de Windows. **Mayús + clic derecho** abre Petal de forma predeterminada; el atajo es personalizable. Haz clic fuera o pulsa **Esc** para ocultar el menú; una conversión activa continúa en segundo plano.
+El centro (el logotipo de Windows) abre el menú de Windows, igual que un clic derecho normal. **Mayús + clic derecho** abre Petal de forma predeterminada; el atajo es personalizable. Haz clic fuera o pulsa **Esc** para ocultar el menú; una conversión activa continúa en segundo plano.
 
 | Atajo | Acción |
 | --- | --- |
@@ -79,13 +79,13 @@ El centro abre **Windows menu**. Un clic derecho normal abre el menú de Windows
 
 Abre **Settings…** desde la bandeja para capturar una tecla o botón del ratón con Ctrl/Mayús/Alt/Win, configurar el inicio con Windows o elegir y probar un sonido WAV. Los cambios se guardan automáticamente. **Reset** restaura Mayús + clic derecho.
 
-En el menú del icono de la bandeja, **Mute sound** silencia el sonido y **Quit Petal** cierra la aplicación. La preferencia de sonido se guarda. No se puede salir durante una conversión.
+Un clic izquierdo en el icono de la bandeja abre los ajustes rápidos (Liquid glass, Animations, Sound y **All settings…**). En el menú del clic derecho, **Mute sound** silencia el sonido, **Settings…** abre la ventana completa y **Quit Petal** cierra la aplicación. La preferencia de sonido se guarda. No se puede salir durante una conversión.
 
 ## Apariencia y desarrollo
 
-![Petal con los temas claro y oscuro de Windows](../media/themes.png)
+![Petal con los temas Liquid glass y clásico, en oscuro y claro](../media/themes.png)
 
-Al pasar el cursor, el pétalo o el centro adopta el color de énfasis y el texto se vuelve negro. El movimiento reducido desactiva los desplazamientos y utiliza una señal estática.
+**Liquid glass** (predeterminado): vidrio esmerilado e incoloro que refracta lo que hay detrás del menú; al pasar el cursor, el vidrio se ilumina con un brillo blanco y un borde más luminoso. **Classic**: superficies opacas de Windows 11; al pasar el cursor, el pétalo adopta el color de énfasis y el texto se vuelve negro. Ambos siguen el modo claro u oscuro de Windows. El tema y las animaciones se cambian en los ajustes.
 
 ```powershell
 ./Install-MediaEngine.ps1

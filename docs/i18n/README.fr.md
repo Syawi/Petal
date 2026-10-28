@@ -1,28 +1,29 @@
 <p align="center"><a href="../../README.md">English</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.es.md">Español</a> · <a href="README.ar.md">العربية</a> · <a href="README.hi.md">हिन्दी</a> · <strong>Français</strong></p>
 
-<p align="center"><img src="../media/hero.png" alt="Petal" width="100%"></p>
+<p align="center"><img src="../media/hero.png" alt="Petal, un menu circulaire en liquid glass pour convertir des fichiers sous Windows" width="100%"></p>
 
 # Petal
 
-**Clic droit sur un fichier. Choisis un format. C’est converti.**
+**Maj + clic droit sur un fichier. Choisis un format. C’est converti.**
 
-Petal est un utilitaire natif pour Windows 11 qui place la conversion d’images, de fichiers audio, de vidéos et de documents texte dans un menu circulaire compact. Il fonctionne dans l’Explorateur et sur le bureau, reprend le thème et la couleur d’accentuation de Windows et permet d’ouvrir le menu contextuel Windows depuis le centre.
+Petal est un utilitaire natif pour Windows 11 qui place la conversion d’images, de fichiers audio, de vidéos et de documents texte dans un menu circulaire compact, directement dans l’Explorateur et sur le bureau. Son thème par défaut, **liquid glass**, dépoli et déforme ce qui se trouve derrière lui. Un thème **classique** reprend plutôt la couleur d’accentuation de Windows. Le bouton central ouvre toujours le menu contextuel Windows d’origine.
 
 Cette page est en français. **L’interface de l’application est en anglais.**
 
 ## Aperçu
 
-![Menu circulaire, survol, chargement et validation de Petal](../media/demo.gif)
+![La roue en liquid glass de Petal s’ouvre en bulle, un pétale s’éclaire au survol, puis le chargement et la coche de validation](../media/demo.gif)
 
-La démonstration utilise le moteur de rendu natif et un nom de fichier fictif. [Création des visuels](../MEDIA.md) (en anglais).
+Rendu par le moteur natif de Petal sur un fond d’écran synthétique. [Création des visuels](../MEDIA.md) (en anglais).
 
 ## Fonctionnalités
 
-- Six formats adaptés au fichier ; son format actuel est remplacé par une autre proposition.
-- Conversion locale des images, de l’audio, des vidéos et des documents texte, sans envoi de fichiers.
-- Thèmes clair et sombre, couleur d’accentuation Windows, pétales animés et prise en compte de la réduction des animations.
-- Chargement visible, coche de validation, notification Windows avec le logo et son désactivable.
-- Application Rust native avec Win32/GDI+, sans moteur de navigateur.
+- **Six choix pertinents.** Les formats s’adaptent au fichier ; son format actuel est remplacé par une autre proposition.
+- **Images, audio, vidéos et documents.** Convertir en WebP, extraire une bande son, transformer un texte en PDF, et plus.
+- **Liquid glass.** Les pétales et le centre sont en verre dépoli qui réfracte le bureau près de chaque bord. Au survol, le verre s’éclaire au lieu de se remplir de couleur.
+- **Animation bulle.** Le centre apparaît d’abord, puis les pétales jaillissent de dessous avec un léger rebond, en moins d’une demi-seconde.
+- **Retour clair.** Chargement visible, coche de validation, notification Windows avec le logo et son facultatif.
+- **Natif et local.** Rust avec Win32/GDI+, sans moteur de navigateur ni envoi de fichiers. Le moteur audio/vidéo est un téléchargement unique et vérifié.
 
 > **L’original reste intact.** Le fichier converti est vérifié puis enregistré dans le même dossier avec la nouvelle extension : `photo.jpg` → `photo.webp`. Petal n’écrase jamais un fichier existant. Les métadonnées et la mise en page de la copie convertie peuvent changer.
 
@@ -43,11 +44,11 @@ Audio → MP4 crée une vidéo avec un fond noir et le son du fichier. Vidéo �
 
 ### Télécharger v1.2
 
-Télécharge **[Petal.exe](https://github.com/Syawi/Petal/releases/download/v1.2/Petal.exe)** et lance-le directement sur Windows 11 x64. Aucun ZIP, dossier de ressources, accès administrateur ni installation d’Office n’est nécessaire.
+Télécharge **[Petal.exe](https://github.com/Syawi/Petal/releases/download/v1.2/Petal.exe)** et lance-le directement. Aucun ZIP, dossier de ressources, accès administrateur ni installation d’Office n’est nécessaire.
 
-Le logo, le son et les licences sont intégrés. Les petits fichiers de fonctionnement sont créés dans `%LOCALAPPDATA%/Petal`. À la première conversion audio/vidéo, Petal télécharge et vérifie automatiquement le moteur FFmpeg (environ 109 Mo). Les conversions suivantes fonctionnent hors ligne ; les images et documents n’ont pas besoin de ce téléchargement.
+Le logo, le son et les licences sont intégrés. Les petits fichiers de fonctionnement sont créés dans `%LOCALAPPDATA%/Petal`. À la première conversion audio/vidéo, Petal télécharge et vérifie automatiquement le moteur FFmpeg (environ 109 Mo). Les conversions suivantes fonctionnent hors ligne ; les images et documents n’en ont jamais besoin.
 
-Le démarrage avec Windows est activé au premier lancement et peut être désactivé dans **Settings**. Garde l’exécutable à un emplacement stable. Les licences sont accessibles dans **Settings → Licenses**.
+Le lancement au démarrage est activé au premier lancement et peut être désactivé dans les **réglages**. Garde l’exécutable à un emplacement stable pour qu’il continue de fonctionner.
 
 ### Compiler les sources
 
@@ -60,7 +61,7 @@ cd Petal
 ./Petal.exe
 ```
 
-Le script prépare FFmpeg/FFprobe, vérifie le SHA-256 du téléchargement, exécute les tests et crée l’exécutable. Pour GNU, consulte [CONTRIBUTING.md](../../CONTRIBUTING.md).
+Le script prépare les outils de test FFmpeg/FFprobe, exécute les tests et crée l’exécutable. Pour GNU, consulte [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 ## Utilisation
 
@@ -68,7 +69,7 @@ Le script prépare FFmpeg/FFprobe, vérifie le SHA-256 du téléchargement, exé
 2. Maintiens **Maj** et fais un clic droit sur un fichier compatible dans l’Explorateur ou sur le bureau.
 3. Clique sur un format. Petal crée et vérifie la copie, puis affiche **Conversion complete**.
 
-Le centre ouvre **Windows menu**. Le clic droit seul ouvre le menu Windows. **Maj + clic droit** ouvre Petal par défaut ; ce raccourci est personnalisable. Clique en dehors de la roue ou appuie sur **Échap** pour la masquer ; une conversion en cours continue en arrière-plan.
+Le clic droit seul ouvre toujours le menu Windows, tout comme le centre de la roue (le logo Windows). Clique en dehors ou appuie sur **Échap** pour masquer la roue ; une conversion en cours continue en arrière-plan.
 
 | Raccourci | Action |
 | --- | --- |
@@ -77,15 +78,61 @@ Le centre ouvre **Windows menu**. Le clic droit seul ouvre le menu Windows. **Ma
 | `M` | Ouvrir le menu Windows |
 | `Échap` | Masquer la roue ou l’animation |
 
-Ouvre **Settings…** depuis l’icône de notification pour enregistrer une touche ou un bouton de souris, avec Ctrl/Maj/Alt/Windows, régler le lancement au démarrage ou choisir et écouter un son WAV. Les changements sont enregistrés automatiquement. **Reset** rétablit Maj + clic droit.
+## Thèmes
 
-Le menu de l’icône de notification propose **Mute sound** pour couper le son et **Quit Petal** pour quitter. Le choix du son est mémorisé. Quitter est désactivé pendant une conversion.
+![Petal en thèmes liquid glass et classique, sombre et clair](../media/themes.png)
 
-## Apparence et développement
+| Thème | Surfaces | Survol |
+| --- | --- | --- |
+| **Liquid glass** (par défaut) | Verre dépoli qui réfracte ce qu’il y a derrière le menu. Incolore : toutes les teintes viennent de ton bureau. | Le verre s’éclaire d’un reflet blanc et d’un liseré plus brillant ; le texte reste lisible. |
+| **Classique** | Surfaces opaques de Windows 11. | Le pétale prend exactement la couleur d’accentuation de Windows et son texte devient noir. |
 
-![Petal avec les thèmes clair et sombre de Windows](../media/themes.png)
+Les deux suivent le mode clair/sombre de Windows. Le liquid glass capture l’arrière-plan à l’ouverture de la roue : un contenu en mouvement derrière, comme une vidéo, ne se met pas à jour tant que la roue est affichée.
 
-Au survol, le pétale ou le centre prend la couleur d’accentuation et son texte devient noir. La réduction des animations désactive les déplacements et utilise un indicateur statique.
+## Réglages
+
+Petal propose deux surfaces de réglages, accessibles depuis son icône de notification. Chaque changement est enregistré immédiatement : il n’y a pas de bouton Appliquer.
+
+### Réglages rapides
+
+![Le panneau de réglages rapides en liquid glass, sombre et clair](../media/quick-settings.png)
+
+**Clic gauche** sur l’icône de notification : un panneau en verre apparaît en bulle au-dessus.
+
+| Interrupteur | Effet |
+| --- | --- |
+| **Liquid glass** | Active le thème verre, ou revient au thème classique. |
+| **Animations** | Ouverture en bulle, mouvement des pétales au survol et animations de retour. C’est un réglage propre à Petal : il reste actif même si les *effets d’animation* de Windows sont désactivés. |
+| **Sound** | Le son joué avec la coche de validation. |
+
+**All settings…** ouvre la fenêtre complète. Ferme le panneau avec **Échap**, le bouton **×** ou un clic ailleurs. Les flèches ou **Tab** passent d’un interrupteur à l’autre, **Espace** ou **Entrée** l’active.
+
+### Tous les réglages
+
+![La fenêtre Settings : thème, raccourci, lancement au démarrage et son de fin](../media/settings.png)
+
+Ouvre-la avec **All settings…** dans le panneau rapide, ou fais un **clic droit** sur l’icône et choisis **Settings…**.
+
+| Section | Contrôles |
+| --- | --- |
+| **Thème** (en haut à droite) | **Liquid glass** ou **Classic** pour la roue. |
+| **Open Petal** | Clique sur le bouton du raccourci, puis appuie sur n’importe quelle touche ou bouton de souris, avec Ctrl, Maj, Alt ou Windows en option. **Échap** annule. Les raccourcis clavier agissent sur le fichier sous le pointeur quand l’Explorateur ou le bureau est au premier plan. Windows peut réserver certaines combinaisons. **Reset** rétablit Maj + clic droit. |
+| **Launch at sign-in** | Lance Petal discrètement dans la zone de notification à l’ouverture de session. Activé après le premier lancement. |
+| **Completion sound** | Active ou coupe le son. **Choose WAV…** choisit ton propre fichier WAV, **Preview** joue le son actuel et **Use default** revient au son intégré *Paid*. Si le fichier choisi disparaît, Petal reprend le son intégré. |
+| **Licenses** | Ouvre les mentions des composants tiers intégrées à Petal.exe. |
+
+### Menu de l’icône
+
+| Action | Résultat |
+| --- | --- |
+| Clic gauche sur l’icône | Réglages rapides |
+| Clic droit → **Mute sound** | Coupe ou rétablit le son |
+| Clic droit → **Settings…** | La fenêtre de réglages complète |
+| Clic droit → **Quit Petal** | Quitte Petal. Indisponible pendant une conversion. |
+
+Les réglages sont enregistrés par utilisateur dans `HKEY_CURRENT_USER\Software\Petal`. Le lancement au démarrage utilise la clé `Run` standard. Aucun droit administrateur n’est nécessaire.
+
+## Développement
 
 ```powershell
 ./Install-MediaEngine.ps1
@@ -94,7 +141,7 @@ cargo test --locked
 cargo build --release --locked
 ```
 
-La CI Windows vérifie le formatage, exécute les tests et compile l’application. Les vérifications du bureau interactif et l’export des images du README sont facultatifs. Documentation technique en anglais : [tests](../../TESTING.md), [contribution](../../CONTRIBUTING.md), [visuels](../MEDIA.md).
+La CI Windows vérifie le formatage, exécute les tests et compile l’exécutable. Les vérifications du bureau interactif et l’export des visuels du README sont facultatifs. Documentation technique en anglais : [tests](../../TESTING.md), [contribution](../../CONTRIBUTING.md), [design](../../DESIGN.md), [visuels](../MEDIA.md).
 
 ## Licence et crédits
 
